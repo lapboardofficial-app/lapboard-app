@@ -8,6 +8,8 @@ This repo now supports serving the built React app and the API from the same Nod
 
 1. Push the repo to GitHub.
 2. Create a new Render Blueprint from `render.yaml`, or create a Render Web Service manually.
+   - Blueprint name: `lapboard`
+   - Blueprint path: `render.yaml`
 3. Use these settings:
    - Build command: `npm install && npm run build`
    - Start command: `npm start`

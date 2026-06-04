@@ -23,7 +23,7 @@ services:
         sync: false
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
-    disks:
-      - name: lapboard-data
-        mountPath: /var/data
-        sizeGB: 1
+    disk:
+      name: lapboard-data
+      mountPath: /var/data
+      sizeGB: 1
