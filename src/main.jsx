@@ -1288,6 +1288,7 @@ function App() {
   const sharedLapIdsRef = useRef(new Set());
   const sharedLeagueMembershipIdsRef = useRef(new Set());
   const suppressLapPublishRef = useRef(false);
+  const suppressLeaguePublishRef = useRef(false);
   const shouldSeedPrivateData = ENABLE_SAMPLE_DATA && canLoadPrivateSeedData();
   const sampleStartAccounts = shouldSeedPrivateData ? sampleAccounts : [emptyAccount];
   const sampleStartLapTimes = shouldSeedPrivateData ? sampleLapTimes : [];
@@ -1580,6 +1581,7 @@ function App() {
   useEffect(() => {
     if (backendStatus !== "connected") return;
     if (supabaseEnabled && !supabaseSession?.user) return;
+    if (suppressLeaguePublishRef.current) return;
     leagueMemberships
       .filter((membership) => membership.player.toLowerCase() === account.username.toLowerCase())
       .forEach((membership) => publishLeagueMembership(membership));
@@ -1680,6 +1682,16 @@ function App() {
 
   function setSharedFailure(error, fallback = "Shared sync failed") {
     const detail = error?.message || fallback;
+    const isSupabaseAuthReadinessError = supabaseEnabled && detail.startsWith("Sign in before ");
+
+    if (isSupabaseAuthReadinessError) {
+      setBackendStatusDetail(detail);
+      setLastSharedError(detail);
+      saveStored("lapboard-last-shared-error", detail);
+      setMessage(detail);
+      return;
+    }
+
     setBackendStatus("local-only");
     setBackendStatusDetail(detail);
     setLastSharedError(detail);
@@ -2565,6 +2577,10 @@ function App() {
         : nextAccounts[0]?.username || account.username;
       const shouldPublishImportedLapsToSupabase = Boolean(supabaseEnabled && supabaseSession?.user);
       if (shouldPublishImportedLapsToSupabase) suppressLapPublishRef.current = true;
+      if (supabaseEnabled) suppressLeaguePublishRef.current = true;
+      importedMemberships.forEach((membership) => {
+        if (membership?.id) sharedLeagueMembershipIdsRef.current.add(String(membership.id));
+      });
 
       persistAccounts(nextAccounts, nextCurrentUser);
       persistLapTimes(importedLapTimes);
@@ -2598,12 +2614,20 @@ function App() {
           setSharedOperationFailure(error, "Supabase import publish failed");
           setMessage(`Imported locally, but Supabase publish failed: ${detail}`);
         } finally {
-          suppressLapPublishRef.current = false;
+          window.setTimeout(() => {
+            suppressLapPublishRef.current = false;
+            suppressLeaguePublishRef.current = false;
+          }, 0);
         }
       } else {
+        window.setTimeout(() => {
+          suppressLeaguePublishRef.current = false;
+        }, 0);
         setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}.`);
       }
     } catch {
+      suppressLapPublishRef.current = false;
+      suppressLeaguePublishRef.current = false;
       setMessage("Could not import that JSON file.");
     }
   }
