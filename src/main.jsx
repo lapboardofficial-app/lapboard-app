@@ -1314,6 +1314,7 @@ function App() {
   const [now, setNow] = useState(() => new Date());
   const [message, setMessage] = useState("");
   const [backendStatus, setBackendStatus] = useState("checking");
+  const [backendStatusDetail, setBackendStatusDetail] = useState("");
   const [supabaseSession, setSupabaseSession] = useState(null);
   const [authStatus, setAuthStatus] = useState(supabaseEnabled ? "checking" : "local");
   const [lastSharedSync, setLastSharedSync] = useState("");
@@ -1450,6 +1451,11 @@ function App() {
     hour: "numeric",
     minute: "2-digit"
   }).format(now);
+  const sharedStatusLabel = backendStatus === "connected"
+    ? `${supabaseEnabled ? "Supabase connected" : "Shared backend connected"}${lastSharedSync ? ` / ${new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(lastSharedSync))}` : ""}`
+    : backendStatus === "checking"
+      ? `Checking ${supabaseEnabled ? "Supabase" : "shared backend"}`
+      : `Local-only mode${backendStatusDetail ? ` / ${backendStatusDetail}` : ""}`;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
@@ -1690,6 +1696,10 @@ function App() {
 
   async function syncSharedData({ showMessage = false } = {}) {
     try {
+      if (import.meta.env.PROD && !supabaseEnabled && !API_BASE_URL) {
+        throw new Error("Supabase env vars are missing in Vercel.");
+      }
+
       if (supabaseEnabled) {
         const data = await loadSupabaseBootstrap();
         const sharedLaps = Array.isArray(data.laps) ? data.laps : [];
@@ -1718,6 +1728,7 @@ function App() {
           return nextMemberships;
         });
         setBackendStatus("connected");
+        setBackendStatusDetail("");
         setLastSharedSync(new Date().toISOString());
         if (showMessage) {
           setMessage(`Synced ${sharedLaps.length} shared lap${sharedLaps.length === 1 ? "" : "s"} from Supabase.`);
@@ -1752,14 +1763,21 @@ function App() {
         return nextMemberships;
       });
       setBackendStatus("connected");
+      setBackendStatusDetail("");
       setLastSharedSync(new Date().toISOString());
       if (showMessage) {
         setMessage(`Synced ${sharedLaps.length} shared lap${sharedLaps.length === 1 ? "" : "s"} from the backend.`);
       }
       return true;
-    } catch {
+    } catch (error) {
       setBackendStatus("local-only");
-      if (showMessage) setMessage("Could not reach the shared backend. Make sure npm run api is running.");
+      const detail = supabaseEnabled
+        ? error.message || "Supabase sync failed"
+        : error.message || "Shared backend unavailable";
+      setBackendStatusDetail(detail);
+      if (showMessage) {
+        setMessage(supabaseEnabled ? `Supabase sync failed: ${detail}` : `Could not reach the shared backend: ${detail}`);
+      }
       return false;
     }
   }
@@ -3246,9 +3264,7 @@ function App() {
                   <span>Auto publish</span>
                 </label>
                 <span className={`sync-pill ${backendStatus === "connected" ? "connected" : "local"}`}>
-                  {backendStatus === "connected"
-                    ? `Shared backend connected${lastSharedSync ? ` / ${new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(lastSharedSync))}` : ""}`
-                    : backendStatus === "checking" ? "Checking shared backend" : "Local-only mode"}
+                  {sharedStatusLabel}
                 </span>
               </div>
 
@@ -3526,7 +3542,7 @@ function App() {
             <p className="section-copy">
               Everyone's best public lap is shown for every track and layout. Private imported laps stay visible only to their owner.
               <span className={`sync-pill ${backendStatus === "connected" ? "connected" : "local"}`}>
-                {backendStatus === "connected" ? "Shared backend connected" : backendStatus === "checking" ? "Checking shared backend" : "Local-only mode"}
+                {sharedStatusLabel}
               </span>
             </p>
             <div className="table-wrap compact-table">
