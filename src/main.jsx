@@ -309,6 +309,18 @@ function saveStored(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function downloadJsonFile(filename, data) {
+  const blob = new Blob([`${JSON.stringify(data, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function formatTime(totalMs) {
   const minutes = Math.floor(totalMs / 60000);
   const seconds = Math.floor((totalMs % 60000) / 1000);
@@ -2403,6 +2415,85 @@ function App() {
     setMessage("Local laps, accounts, and friends were cleared.");
   }
 
+  function exportLocalData() {
+    const exportData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      currentUser,
+      accounts: accounts.map(({ passwordHash, passwordSalt, ...publicAccount }) => publicAccount),
+      lapTimes,
+      leagueMemberships,
+      leagueResults,
+      mediaEntries: mediaEntries.filter((entry) => entry.type === "link"),
+      teams,
+      theme,
+      autoPublishLaps
+    };
+
+    downloadJsonFile(`lapboard-export-${new Date().toISOString().slice(0, 10)}.json`, exportData);
+    setMessage("LapBoard data exported. Passwords were not included.");
+  }
+
+  async function importLocalData(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.lapTimes)) {
+        setMessage("That file does not look like a LapBoard export.");
+        return;
+      }
+
+      const importedAccounts = Array.isArray(parsed.accounts)
+        ? parsed.accounts.map((item) => normalizeAccount(item)).filter((item) => item.username)
+        : [];
+      const importedLapTimes = Array.isArray(parsed.lapTimes)
+        ? parsed.lapTimes.filter((lap) => lap?.player && lap?.trackId && Number(lap.ms) > 0)
+        : [];
+      const importedMemberships = Array.isArray(parsed.leagueMemberships)
+        ? parsed.leagueMemberships.filter((membership) => membership?.player && membership?.leagueId && membership?.trackId)
+        : [];
+      const importedResults = Array.isArray(parsed.leagueResults)
+        ? parsed.leagueResults.filter((result) => result?.player && result?.leagueId && result?.trackId && result?.date)
+        : [];
+      const importedMedia = Array.isArray(parsed.mediaEntries)
+        ? parsed.mediaEntries.filter((entry) => entry?.title && entry?.url && entry?.type === "link")
+        : [];
+      const importedTeams = Array.isArray(parsed.teams)
+        ? parsed.teams.filter((team) => team?.name && Array.isArray(team.members))
+        : [];
+
+      const nextAccounts = importedAccounts.length ? importedAccounts : [normalizeAccount(parsed.currentUser || account.username)];
+      const nextCurrentUser = nextAccounts.some((item) => item.username === parsed.currentUser)
+        ? parsed.currentUser
+        : nextAccounts[0]?.username || account.username;
+
+      persistAccounts(nextAccounts, nextCurrentUser);
+      persistLapTimes(importedLapTimes);
+      setLeagueMemberships(importedMemberships);
+      setLeagueResults(importedResults);
+      setMediaEntries(importedMedia);
+      setTeams(importedTeams);
+      if (parsed.theme && typeof parsed.theme === "object") setTheme({ ...defaultTheme, ...parsed.theme });
+      setAutoPublishLaps(Boolean(parsed.autoPublishLaps));
+
+      if (supabaseEnabled && supabaseSession?.user) {
+        publishSupabaseLaps(importedLapTimes.filter((lap) => lap.player.toLowerCase() === nextCurrentUser.toLowerCase()), supabaseSession.user.id)
+          .then((savedLaps) => {
+            savedLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
+            setBackendStatus("connected");
+          })
+          .catch(() => setBackendStatus("local-only"));
+      }
+
+      setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}.`);
+    } catch {
+      setMessage("Could not import that JSON file.");
+    }
+  }
+
   async function addMediaLink(event) {
     event.preventDefault();
     const title = mediaTitle.trim();
@@ -4057,6 +4148,17 @@ function App() {
             <button className="ghost-button profile-action" type="button" onClick={() => openOnboarding(0)}>
               Run onboarding again
             </button>
+
+            <button className="ghost-button profile-action" type="button" onClick={exportLocalData}>
+              <Upload size={16} aria-hidden="true" />
+              Export local data
+            </button>
+
+            <label className="upload-button profile-action">
+              <Upload size={16} aria-hidden="true" />
+              Import LapBoard data
+              <input type="file" accept="application/json,.json" onChange={importLocalData} />
+            </label>
 
             <button className="danger-button" type="button" onClick={clearLocalData}>
               <Trash2 size={16} aria-hidden="true" />
