@@ -42,7 +42,9 @@ import {
   signInOrSignUpWithSupabase,
   signOutSupabase,
   supabase,
+  supabaseAnonKey,
   supabaseEnabled,
+  supabaseUrl,
   upsertProfile
 } from "./lib/supabase";
 import "./styles.css";
@@ -77,6 +79,7 @@ const API_BASE_URL = (
   import.meta.env.VITE_LAPBOARD_API_URL
   || (import.meta.env.PROD ? "" : "http://127.0.0.1:3010")
 ).replace(/\/$/, "");
+const isProductionBuild = Boolean(import.meta.env.PROD);
 const defaultTheme = {
   mode: "light",
   accent: "#df0d22",
@@ -139,13 +142,20 @@ const themePresets = [
 const ONBOARDING_TOTAL_STEPS = 10;
 
 async function requestSharedApi(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    }
-  });
+  let response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      }
+    });
+  } catch {
+    const target = API_BASE_URL || "the deployed /api backend";
+    throw new Error(`Shared backend is not reachable at ${target}. Start the local API with npm run api, or add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.`);
+  }
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -1277,6 +1287,7 @@ function TrackImage({ track, layoutName }) {
 function App() {
   const sharedLapIdsRef = useRef(new Set());
   const sharedLeagueMembershipIdsRef = useRef(new Set());
+  const suppressLapPublishRef = useRef(false);
   const shouldSeedPrivateData = ENABLE_SAMPLE_DATA && canLoadPrivateSeedData();
   const sampleStartAccounts = shouldSeedPrivateData ? sampleAccounts : [emptyAccount];
   const sampleStartLapTimes = shouldSeedPrivateData ? sampleLapTimes : [];
@@ -1468,6 +1479,11 @@ function App() {
     : backendStatus === "checking"
       ? `Checking ${supabaseEnabled ? "Supabase" : "shared backend"}`
       : `Local-only mode${backendStatusDetail ? ` / ${backendStatusDetail}` : ""}`;
+  const missingSupabaseEnv = {
+    url: !supabaseUrl,
+    anonKey: !supabaseAnonKey
+  };
+  const showProductionSupabaseWarning = isProductionBuild && !supabaseEnabled;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
@@ -1677,6 +1693,14 @@ function App() {
     saveStored("lapboard-last-shared-error", "");
   }
 
+  function setSharedOperationFailure(error, fallback = "Shared action failed") {
+    const detail = error?.message || fallback;
+    setBackendStatusDetail(detail);
+    setLastSharedError(detail);
+    saveStored("lapboard-last-shared-error", detail);
+    setMessage(detail);
+  }
+
   async function handleSupabaseAuth(event) {
     event.preventDefault();
     const email = authEmail.trim();
@@ -1811,6 +1835,8 @@ function App() {
   }
 
   async function publishSharedLaps(lapsToPublish) {
+    if (suppressLapPublishRef.current) return;
+
     const publicLaps = getPublicLaps(lapsToPublish)
       .filter((lap) => !supabaseEnabled || lap.player.toLowerCase() === account.username.toLowerCase())
       .filter((lap) => !sharedLapIdsRef.current.has(String(lap.id)));
@@ -1834,6 +1860,10 @@ function App() {
       setSharedConnected();
     } catch (error) {
       publicLaps.forEach((lap) => sharedLapIdsRef.current.delete(String(lap.id)));
+      if (supabaseEnabled) {
+        setSharedOperationFailure(error, "Could not publish laps to Supabase.");
+        return;
+      }
       setSharedFailure(error, "Could not publish laps.");
     }
   }
@@ -2524,6 +2554,8 @@ function App() {
       const nextCurrentUser = nextAccounts.some((item) => item.username === parsed.currentUser)
         ? parsed.currentUser
         : nextAccounts[0]?.username || account.username;
+      const shouldPublishImportedLapsToSupabase = Boolean(supabaseEnabled && supabaseSession?.user);
+      if (shouldPublishImportedLapsToSupabase) suppressLapPublishRef.current = true;
 
       persistAccounts(nextAccounts, nextCurrentUser);
       persistLapTimes(importedLapTimes);
@@ -2534,10 +2566,11 @@ function App() {
       if (parsed.theme && typeof parsed.theme === "object") setTheme({ ...defaultTheme, ...parsed.theme });
       setAutoPublishLaps(Boolean(parsed.autoPublishLaps));
 
-      if (supabaseEnabled && supabaseSession?.user) {
+      if (shouldPublishImportedLapsToSupabase) {
         const currentDriver = account.username.toLowerCase();
-        const importedOwnLaps = importedLapTimes
-          .filter((lap) => lap.player.toLowerCase() === nextCurrentUser.toLowerCase() || lap.player.toLowerCase() === currentDriver)
+        const importedOwnSourceLaps = importedLapTimes
+          .filter((lap) => lap.player.toLowerCase() === nextCurrentUser.toLowerCase() || lap.player.toLowerCase() === currentDriver);
+        const importedOwnLaps = importedOwnSourceLaps
           .map((lap, index) => ({
             ...lap,
             id: `import-${supabaseSession.user.id}-${Date.now()}-${index}`,
@@ -2548,15 +2581,15 @@ function App() {
         try {
           const savedLaps = await publishSupabaseLaps(importedOwnLaps, supabaseSession.user.id);
           savedLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
+          importedOwnSourceLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
           setSharedConnected();
           setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}. Published ${savedLaps.length} to Supabase.`);
         } catch (error) {
           const detail = error.message || "Supabase import publish failed";
-          setBackendStatus("local-only");
-          setBackendStatusDetail(detail);
-          setLastSharedError(detail);
-          saveStored("lapboard-last-shared-error", detail);
+          setSharedOperationFailure(error, "Supabase import publish failed");
           setMessage(`Imported locally, but Supabase publish failed: ${detail}`);
+        } finally {
+          suppressLapPublishRef.current = false;
         }
       } else {
         setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}.`);
@@ -4169,6 +4202,14 @@ function App() {
 
             <div className="profile-auth-status shared-diagnostic">
               <p className="helper-text">Shared data: {sharedStatusLabel}</p>
+              {showProductionSupabaseWarning && (
+                <p className="connection-error">
+                  Vercel cannot see the Supabase environment variables in this build. Missing: {[
+                    missingSupabaseEnv.url ? "VITE_SUPABASE_URL" : "",
+                    missingSupabaseEnv.anonKey ? "VITE_SUPABASE_ANON_KEY" : ""
+                  ].filter(Boolean).join(", ") || "unknown"}. Add them to Vercel Production and redeploy.
+                </p>
+              )}
               {lastSharedError && (
                 <p className="connection-error">Last error: {lastSharedError}</p>
               )}

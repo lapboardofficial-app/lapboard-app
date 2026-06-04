@@ -220,13 +220,23 @@ export async function loadSupabaseBootstrap() {
 export async function publishSupabaseLaps(laps, userId) {
   const client = requireSupabase();
   const rows = laps.map((lap) => lapToRow(lap, userId));
-  const { data, error } = await client
-    .from("laps")
-    .upsert(rows, { onConflict: "id" })
-    .select();
+  if (!rows.length) return [];
 
-  if (error) throw error;
-  return (data || []).map(rowToLap);
+  const savedRows = [];
+  const chunkSize = 200;
+
+  for (let index = 0; index < rows.length; index += chunkSize) {
+    const chunk = rows.slice(index, index + chunkSize);
+    const { data, error } = await client
+      .from("laps")
+      .upsert(chunk, { onConflict: "id" })
+      .select();
+
+    if (error) throw error;
+    savedRows.push(...(data || []));
+  }
+
+  return savedRows.map(rowToLap);
 }
 
 export async function publishSupabaseMedia(entry, userId) {
