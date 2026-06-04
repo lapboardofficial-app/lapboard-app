@@ -1528,6 +1528,7 @@ function App() {
         if (session?.user) {
           await loadSupabaseAccount(session);
           setAuthStatus("signed-in");
+          setSharedConnected();
         } else {
           setAuthStatus("signed-out");
         }
@@ -1539,7 +1540,10 @@ function App() {
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       setSupabaseSession(session);
       if (session?.user) {
-        loadSupabaseAccount(session).then(() => setAuthStatus("signed-in")).catch(() => setAuthStatus("error"));
+        loadSupabaseAccount(session).then(() => {
+          setAuthStatus("signed-in");
+          setSharedConnected();
+        }).catch(() => setAuthStatus("error"));
       } else {
         setAuthStatus("signed-out");
       }
@@ -1685,6 +1689,7 @@ function App() {
     const isSupabaseAuthReadinessError = supabaseEnabled && detail.startsWith("Sign in before ");
 
     if (isSupabaseAuthReadinessError) {
+      setBackendStatus("connected");
       setBackendStatusDetail(detail);
       setLastSharedError(detail);
       saveStored("lapboard-last-shared-error", detail);
@@ -1708,10 +1713,18 @@ function App() {
 
   function setSharedOperationFailure(error, fallback = "Shared action failed") {
     const detail = error?.message || fallback;
+    if (supabaseEnabled) setBackendStatus("connected");
     setBackendStatusDetail(detail);
     setLastSharedError(detail);
     saveStored("lapboard-last-shared-error", detail);
     setMessage(detail);
+  }
+
+  function clearSharedError() {
+    setBackendStatusDetail("");
+    setLastSharedError("");
+    saveStored("lapboard-last-shared-error", "");
+    if (supabaseEnabled) setBackendStatus("connected");
   }
 
   async function handleSupabaseAuth(event) {
@@ -4246,6 +4259,16 @@ function App() {
               {lastSharedError && (
                 <p className="connection-error">Last error: {lastSharedError}</p>
               )}
+              <button
+                className="ghost-button profile-action"
+                type="button"
+                onClick={() => {
+                  clearSharedError();
+                  syncSharedData({ showMessage: true });
+                }}
+              >
+                Reconnect shared data
+              </button>
             </div>
 
             <div className="account-list">
