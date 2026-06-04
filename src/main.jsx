@@ -1326,6 +1326,7 @@ function App() {
   const [message, setMessage] = useState("");
   const [backendStatus, setBackendStatus] = useState("checking");
   const [backendStatusDetail, setBackendStatusDetail] = useState("");
+  const [lastSharedError, setLastSharedError] = useState(() => loadStored("lapboard-last-shared-error", ""));
   const [supabaseSession, setSupabaseSession] = useState(null);
   const [authStatus, setAuthStatus] = useState(supabaseEnabled ? "checking" : "local");
   const [lastSharedSync, setLastSharedSync] = useState("");
@@ -1664,7 +1665,16 @@ function App() {
     const detail = error?.message || fallback;
     setBackendStatus("local-only");
     setBackendStatusDetail(detail);
+    setLastSharedError(detail);
+    saveStored("lapboard-last-shared-error", detail);
     setMessage(detail);
+  }
+
+  function setSharedConnected() {
+    setBackendStatus("connected");
+    setBackendStatusDetail("");
+    setLastSharedError("");
+    saveStored("lapboard-last-shared-error", "");
   }
 
   async function handleSupabaseAuth(event) {
@@ -1745,8 +1755,7 @@ function App() {
           saveStored("lapboard-league-memberships", nextMemberships);
           return nextMemberships;
         });
-        setBackendStatus("connected");
-        setBackendStatusDetail("");
+        setSharedConnected();
         setLastSharedSync(new Date().toISOString());
         if (showMessage) {
           setMessage(`Synced ${sharedLaps.length} shared lap${sharedLaps.length === 1 ? "" : "s"} from Supabase.`);
@@ -1780,8 +1789,7 @@ function App() {
         saveStored("lapboard-league-memberships", nextMemberships);
         return nextMemberships;
       });
-      setBackendStatus("connected");
-      setBackendStatusDetail("");
+      setSharedConnected();
       setLastSharedSync(new Date().toISOString());
       if (showMessage) {
         setMessage(`Synced ${sharedLaps.length} shared lap${sharedLaps.length === 1 ? "" : "s"} from the backend.`);
@@ -1793,6 +1801,8 @@ function App() {
         ? error.message || "Supabase sync failed"
         : error.message || "Shared backend unavailable";
       setBackendStatusDetail(detail);
+      setLastSharedError(detail);
+      saveStored("lapboard-last-shared-error", detail);
       if (showMessage) {
         setMessage(supabaseEnabled ? `Supabase sync failed: ${detail}` : `Could not reach the shared backend: ${detail}`);
       }
@@ -1813,8 +1823,7 @@ function App() {
         if (!supabaseSession?.user) throw new Error("Sign in before publishing public laps.");
         const savedLaps = await publishSupabaseLaps(publicLaps, supabaseSession.user.id);
         setLapTimes((current) => mergeById(current, savedLaps));
-        setBackendStatus("connected");
-        setBackendStatusDetail("");
+        setSharedConnected();
         return;
       }
 
@@ -1822,8 +1831,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({ laps: publicLaps })
       });
-      setBackendStatus("connected");
-      setBackendStatusDetail("");
+      setSharedConnected();
     } catch (error) {
       publicLaps.forEach((lap) => sharedLapIdsRef.current.delete(String(lap.id)));
       setSharedFailure(error, "Could not publish laps.");
@@ -1867,8 +1875,7 @@ function App() {
         if (!supabaseSession?.user) throw new Error("Sign in before publishing media.");
         const savedEntry = await publishSupabaseMedia(entry, supabaseSession.user.id);
         setMediaEntries((current) => mergeById(current, [savedEntry]));
-        setBackendStatus("connected");
-        setBackendStatusDetail("");
+        setSharedConnected();
         return;
       }
 
@@ -1877,8 +1884,7 @@ function App() {
         body: JSON.stringify({ entry })
       });
       if (saved.entry) setMediaEntries((current) => mergeById(current, [saved.entry]));
-      setBackendStatus("connected");
-      setBackendStatusDetail("");
+      setSharedConnected();
     } catch (error) {
       setSharedFailure(error, "Could not publish media.");
     }
@@ -1893,8 +1899,7 @@ function App() {
 
       const saved = await requestSharedApi(path, options);
       if (saved.team) setTeams((current) => mergeById(current, [saved.team]));
-      setBackendStatus("connected");
-      setBackendStatusDetail("");
+      setSharedConnected();
       return saved;
     } catch (error) {
       setSharedFailure(error, "Could not update team.");
@@ -1911,8 +1916,7 @@ function App() {
         if (!supabaseSession?.user) throw new Error("Sign in before joining public leagues.");
         const savedMembership = await publishSupabaseLeagueMembership(membership, supabaseSession.user.id);
         setLeagueMemberships((current) => mergeById(current, [savedMembership]));
-        setBackendStatus("connected");
-        setBackendStatusDetail("");
+        setSharedConnected();
         return;
       }
 
@@ -1921,8 +1925,7 @@ function App() {
         body: JSON.stringify({ membership })
       });
       if (saved.membership) setLeagueMemberships((current) => mergeById(current, [saved.membership]));
-      setBackendStatus("connected");
-      setBackendStatusDetail("");
+      setSharedConnected();
     } catch (error) {
       sharedLeagueMembershipIdsRef.current.delete(String(membership.id));
       setSharedFailure(error, "Could not publish league membership.");
@@ -1934,15 +1937,13 @@ function App() {
       if (supabaseEnabled) {
         await deleteSupabaseLeagueMembership(membershipId);
         sharedLeagueMembershipIdsRef.current.delete(String(membershipId));
-        setBackendStatus("connected");
-        setBackendStatusDetail("");
+        setSharedConnected();
         return;
       }
 
       await requestSharedApi(`/api/league-memberships/${encodeURIComponent(membershipId)}`, { method: "DELETE" });
       sharedLeagueMembershipIdsRef.current.delete(String(membershipId));
-      setBackendStatus("connected");
-      setBackendStatusDetail("");
+      setSharedConnected();
     } catch (error) {
       setSharedFailure(error, "Could not delete league membership.");
     }
@@ -2547,13 +2548,14 @@ function App() {
         try {
           const savedLaps = await publishSupabaseLaps(importedOwnLaps, supabaseSession.user.id);
           savedLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
-          setBackendStatus("connected");
-          setBackendStatusDetail("");
+          setSharedConnected();
           setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}. Published ${savedLaps.length} to Supabase.`);
         } catch (error) {
           const detail = error.message || "Supabase import publish failed";
           setBackendStatus("local-only");
           setBackendStatusDetail(detail);
+          setLastSharedError(detail);
+          saveStored("lapboard-last-shared-error", detail);
           setMessage(`Imported locally, but Supabase publish failed: ${detail}`);
         }
       } else {
@@ -2621,14 +2623,12 @@ function App() {
     try {
       if (supabaseEnabled) {
         await deleteSupabaseMedia(entryId);
-        setBackendStatus("connected");
-        setBackendStatusDetail("");
+        setSharedConnected();
         return;
       }
 
       await requestSharedApi(`/api/media/${encodeURIComponent(entryId)}`, { method: "DELETE" });
-      setBackendStatus("connected");
-      setBackendStatusDetail("");
+      setSharedConnected();
     } catch (error) {
       setSharedFailure(error, "Could not delete media.");
     }
@@ -2666,8 +2666,7 @@ function App() {
       createSupabaseTeam(nextTeam, supabaseSession.user.id)
         .then((savedTeam) => {
           setTeams((current) => mergeById(current, [savedTeam]));
-          setBackendStatus("connected");
-          setBackendStatusDetail("");
+          setSharedConnected();
         })
         .catch((error) => setSharedFailure(error, "Could not create team in Supabase."));
     } else {
@@ -2693,8 +2692,7 @@ function App() {
       }
       joinSupabaseTeam(teamId, account.username, supabaseSession.user.id)
         .then(() => {
-          setBackendStatus("connected");
-          setBackendStatusDetail("");
+          setSharedConnected();
         })
         .catch((error) => setSharedFailure(error, "Could not join team in Supabase."));
       return;
@@ -2715,8 +2713,7 @@ function App() {
       if (!supabaseSession?.user) return;
       leaveSupabaseTeam(teamId, supabaseSession.user.id)
         .then(() => {
-          setBackendStatus("connected");
-          setBackendStatusDetail("");
+          setSharedConnected();
         })
         .catch((error) => setSharedFailure(error, "Could not leave team in Supabase."));
       return;
@@ -2732,14 +2729,12 @@ function App() {
     try {
       if (supabaseEnabled) {
         await deleteSupabaseTeam(teamId);
-        setBackendStatus("connected");
-        setBackendStatusDetail("");
+        setSharedConnected();
         return;
       }
 
       await requestSharedApi(`/api/teams/${encodeURIComponent(teamId)}`, { method: "DELETE" });
-      setBackendStatus("connected");
-      setBackendStatusDetail("");
+      setSharedConnected();
     } catch (error) {
       setSharedFailure(error, "Could not delete team.");
     }
@@ -4171,6 +4166,13 @@ function App() {
                 )}
               </div>
             )}
+
+            <div className="profile-auth-status shared-diagnostic">
+              <p className="helper-text">Shared data: {sharedStatusLabel}</p>
+              {lastSharedError && (
+                <p className="connection-error">Last error: {lastSharedError}</p>
+              )}
+            </div>
 
             <div className="account-list">
               {(supabaseEnabled ? [account] : accounts).map((item) => (

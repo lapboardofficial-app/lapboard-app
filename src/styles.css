@@ -205,6 +205,15 @@ img {
   text-transform: uppercase;
 }
 
+.connection-error {
+  margin: 8px 0 0;
+  color: #ff4d5e;
+  font-size: 0.82rem;
+  font-weight: 760;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
 .stat strong {
   color: var(--text);
   font-size: 1.16rem;
@@ -1127,7 +1136,7 @@ tbody tr.leader {
   font-size: 0.72rem;
   font-weight: 820;
   text-transform: uppercase;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .sync-pill.connected {
@@ -1738,6 +1747,17 @@ tbody tr.leader {
 .profile-action {
   width: 100%;
   margin-top: 12px;
+}
+
+.profile-auth-status {
+  margin-top: 12px;
+}
+
+.profile-auth-status.shared-diagnostic {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 84%, var(--background));
 }
 
 .account-list,
