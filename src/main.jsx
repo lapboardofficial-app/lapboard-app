@@ -1660,6 +1660,13 @@ function App() {
     return remoteAccount;
   }
 
+  function setSharedFailure(error, fallback = "Shared sync failed") {
+    const detail = error?.message || fallback;
+    setBackendStatus("local-only");
+    setBackendStatusDetail(detail);
+    setMessage(detail);
+  }
+
   async function handleSupabaseAuth(event) {
     event.preventDefault();
     const email = authEmail.trim();
@@ -1807,6 +1814,7 @@ function App() {
         const savedLaps = await publishSupabaseLaps(publicLaps, supabaseSession.user.id);
         setLapTimes((current) => mergeById(current, savedLaps));
         setBackendStatus("connected");
+        setBackendStatusDetail("");
         return;
       }
 
@@ -1815,9 +1823,10 @@ function App() {
         body: JSON.stringify({ laps: publicLaps })
       });
       setBackendStatus("connected");
-    } catch {
+      setBackendStatusDetail("");
+    } catch (error) {
       publicLaps.forEach((lap) => sharedLapIdsRef.current.delete(String(lap.id)));
-      setBackendStatus("local-only");
+      setSharedFailure(error, "Could not publish laps.");
     }
   }
 
@@ -1859,6 +1868,7 @@ function App() {
         const savedEntry = await publishSupabaseMedia(entry, supabaseSession.user.id);
         setMediaEntries((current) => mergeById(current, [savedEntry]));
         setBackendStatus("connected");
+        setBackendStatusDetail("");
         return;
       }
 
@@ -1868,8 +1878,9 @@ function App() {
       });
       if (saved.entry) setMediaEntries((current) => mergeById(current, [saved.entry]));
       setBackendStatus("connected");
-    } catch {
-      setBackendStatus("local-only");
+      setBackendStatusDetail("");
+    } catch (error) {
+      setSharedFailure(error, "Could not publish media.");
     }
   }
 
@@ -1883,9 +1894,10 @@ function App() {
       const saved = await requestSharedApi(path, options);
       if (saved.team) setTeams((current) => mergeById(current, [saved.team]));
       setBackendStatus("connected");
+      setBackendStatusDetail("");
       return saved;
-    } catch {
-      setBackendStatus("local-only");
+    } catch (error) {
+      setSharedFailure(error, "Could not update team.");
       return null;
     }
   }
@@ -1900,6 +1912,7 @@ function App() {
         const savedMembership = await publishSupabaseLeagueMembership(membership, supabaseSession.user.id);
         setLeagueMemberships((current) => mergeById(current, [savedMembership]));
         setBackendStatus("connected");
+        setBackendStatusDetail("");
         return;
       }
 
@@ -1909,9 +1922,10 @@ function App() {
       });
       if (saved.membership) setLeagueMemberships((current) => mergeById(current, [saved.membership]));
       setBackendStatus("connected");
-    } catch {
+      setBackendStatusDetail("");
+    } catch (error) {
       sharedLeagueMembershipIdsRef.current.delete(String(membership.id));
-      setBackendStatus("local-only");
+      setSharedFailure(error, "Could not publish league membership.");
     }
   }
 
@@ -1921,14 +1935,16 @@ function App() {
         await deleteSupabaseLeagueMembership(membershipId);
         sharedLeagueMembershipIdsRef.current.delete(String(membershipId));
         setBackendStatus("connected");
+        setBackendStatusDetail("");
         return;
       }
 
       await requestSharedApi(`/api/league-memberships/${encodeURIComponent(membershipId)}`, { method: "DELETE" });
       sharedLeagueMembershipIdsRef.current.delete(String(membershipId));
       setBackendStatus("connected");
-    } catch {
-      setBackendStatus("local-only");
+      setBackendStatusDetail("");
+    } catch (error) {
+      setSharedFailure(error, "Could not delete league membership.");
     }
   }
 
@@ -2528,19 +2544,18 @@ function App() {
             visibility: "public"
           }));
 
-        publishSupabaseLaps(importedOwnLaps, supabaseSession.user.id)
-          .then((savedLaps) => {
-            savedLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
-            setBackendStatus("connected");
-            setBackendStatusDetail("");
-            setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}. Published ${savedLaps.length} to Supabase.`);
-          })
-          .catch((error) => {
-            const detail = error.message || "Supabase import publish failed";
-            setBackendStatus("local-only");
-            setBackendStatusDetail(detail);
-            setMessage(`Imported locally, but Supabase publish failed: ${detail}`);
-          });
+        try {
+          const savedLaps = await publishSupabaseLaps(importedOwnLaps, supabaseSession.user.id);
+          savedLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
+          setBackendStatus("connected");
+          setBackendStatusDetail("");
+          setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}. Published ${savedLaps.length} to Supabase.`);
+        } catch (error) {
+          const detail = error.message || "Supabase import publish failed";
+          setBackendStatus("local-only");
+          setBackendStatusDetail(detail);
+          setMessage(`Imported locally, but Supabase publish failed: ${detail}`);
+        }
       } else {
         setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}.`);
       }
@@ -2607,13 +2622,15 @@ function App() {
       if (supabaseEnabled) {
         await deleteSupabaseMedia(entryId);
         setBackendStatus("connected");
+        setBackendStatusDetail("");
         return;
       }
 
       await requestSharedApi(`/api/media/${encodeURIComponent(entryId)}`, { method: "DELETE" });
       setBackendStatus("connected");
-    } catch {
-      setBackendStatus("local-only");
+      setBackendStatusDetail("");
+    } catch (error) {
+      setSharedFailure(error, "Could not delete media.");
     }
   }
 
@@ -2647,8 +2664,12 @@ function App() {
         return;
       }
       createSupabaseTeam(nextTeam, supabaseSession.user.id)
-        .then((savedTeam) => setTeams((current) => mergeById(current, [savedTeam])))
-        .catch((error) => setMessage(error.message || "Could not create team in Supabase."));
+        .then((savedTeam) => {
+          setTeams((current) => mergeById(current, [savedTeam]));
+          setBackendStatus("connected");
+          setBackendStatusDetail("");
+        })
+        .catch((error) => setSharedFailure(error, "Could not create team in Supabase."));
     } else {
       requestTeamUpdate("/api/teams", {
         method: "POST",
@@ -2671,8 +2692,11 @@ function App() {
         return;
       }
       joinSupabaseTeam(teamId, account.username, supabaseSession.user.id)
-        .then(() => setBackendStatus("connected"))
-        .catch((error) => setMessage(error.message || "Could not join team in Supabase."));
+        .then(() => {
+          setBackendStatus("connected");
+          setBackendStatusDetail("");
+        })
+        .catch((error) => setSharedFailure(error, "Could not join team in Supabase."));
       return;
     }
     requestTeamUpdate(`/api/teams/${encodeURIComponent(teamId)}/join`, {
@@ -2690,8 +2714,11 @@ function App() {
     if (supabaseEnabled) {
       if (!supabaseSession?.user) return;
       leaveSupabaseTeam(teamId, supabaseSession.user.id)
-        .then(() => setBackendStatus("connected"))
-        .catch((error) => setMessage(error.message || "Could not leave team in Supabase."));
+        .then(() => {
+          setBackendStatus("connected");
+          setBackendStatusDetail("");
+        })
+        .catch((error) => setSharedFailure(error, "Could not leave team in Supabase."));
       return;
     }
     requestTeamUpdate(`/api/teams/${encodeURIComponent(teamId)}/leave`, {
@@ -2706,13 +2733,15 @@ function App() {
       if (supabaseEnabled) {
         await deleteSupabaseTeam(teamId);
         setBackendStatus("connected");
+        setBackendStatusDetail("");
         return;
       }
 
       await requestSharedApi(`/api/teams/${encodeURIComponent(teamId)}`, { method: "DELETE" });
       setBackendStatus("connected");
-    } catch {
-      setBackendStatus("local-only");
+      setBackendStatusDetail("");
+    } catch (error) {
+      setSharedFailure(error, "Could not delete team.");
     }
   }
 
