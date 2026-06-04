@@ -1205,6 +1205,17 @@ function parseLapCsv(text) {
   return { laps, errors };
 }
 
+function normalizeLapDate(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return value;
+
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime()) && parsed.getFullYear() > 2000) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return new Date().toISOString().slice(0, 10);
+}
+
 function Stat({ label, value }) {
   return (
     <div className="stat">
@@ -2468,7 +2479,16 @@ function App() {
         ? parsed.accounts.map((item) => normalizeAccount(item)).filter((item) => item.username)
         : [];
       const importedLapTimes = Array.isArray(parsed.lapTimes)
-        ? parsed.lapTimes.filter((lap) => lap?.player && lap?.trackId && Number(lap.ms) > 0)
+        ? parsed.lapTimes
+          .filter((lap) => lap?.player && lap?.trackId && Number(lap.ms) > 0)
+          .map((lap, index) => ({
+            ...lap,
+            id: String(lap.id || `imported-lap-${Date.now()}-${index}`),
+            ms: Math.round(Number(lap.ms)),
+            date: normalizeLapDate(lap.date),
+            layout: lap.layout || "Main layout",
+            visibility: lap.visibility === "private" ? "private" : "public"
+          }))
         : [];
       const importedMemberships = Array.isArray(parsed.leagueMemberships)
         ? parsed.leagueMemberships.filter((membership) => membership?.player && membership?.leagueId && membership?.trackId)
@@ -2498,15 +2518,32 @@ function App() {
       setAutoPublishLaps(Boolean(parsed.autoPublishLaps));
 
       if (supabaseEnabled && supabaseSession?.user) {
-        publishSupabaseLaps(importedLapTimes.filter((lap) => lap.player.toLowerCase() === nextCurrentUser.toLowerCase()), supabaseSession.user.id)
+        const currentDriver = account.username.toLowerCase();
+        const importedOwnLaps = importedLapTimes
+          .filter((lap) => lap.player.toLowerCase() === nextCurrentUser.toLowerCase() || lap.player.toLowerCase() === currentDriver)
+          .map((lap, index) => ({
+            ...lap,
+            id: `import-${supabaseSession.user.id}-${Date.now()}-${index}`,
+            player: account.username,
+            visibility: "public"
+          }));
+
+        publishSupabaseLaps(importedOwnLaps, supabaseSession.user.id)
           .then((savedLaps) => {
             savedLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
             setBackendStatus("connected");
+            setBackendStatusDetail("");
+            setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}. Published ${savedLaps.length} to Supabase.`);
           })
-          .catch(() => setBackendStatus("local-only"));
+          .catch((error) => {
+            const detail = error.message || "Supabase import publish failed";
+            setBackendStatus("local-only");
+            setBackendStatusDetail(detail);
+            setMessage(`Imported locally, but Supabase publish failed: ${detail}`);
+          });
+      } else {
+        setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}.`);
       }
-
-      setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}.`);
     } catch {
       setMessage("Could not import that JSON file.");
     }
