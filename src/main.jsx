@@ -1579,10 +1579,11 @@ function App() {
 
   useEffect(() => {
     if (backendStatus !== "connected") return;
+    if (supabaseEnabled && !supabaseSession?.user) return;
     leagueMemberships
       .filter((membership) => membership.player.toLowerCase() === account.username.toLowerCase())
       .forEach((membership) => publishLeagueMembership(membership));
-  }, [backendStatus, leagueMemberships, account.username]);
+  }, [backendStatus, leagueMemberships, account.username, supabaseSession?.user?.id]);
 
   useEffect(() => {
     if (!showOnboarding) return;
@@ -1958,6 +1959,10 @@ function App() {
       setSharedConnected();
     } catch (error) {
       sharedLeagueMembershipIdsRef.current.delete(String(membership.id));
+      if (supabaseEnabled) {
+        setSharedOperationFailure(error, "Could not publish league membership to Supabase.");
+        return;
+      }
       setSharedFailure(error, "Could not publish league membership.");
     }
   }
@@ -1975,6 +1980,10 @@ function App() {
       sharedLeagueMembershipIdsRef.current.delete(String(membershipId));
       setSharedConnected();
     } catch (error) {
+      if (supabaseEnabled) {
+        setSharedOperationFailure(error, "Could not delete league membership in Supabase.");
+        return;
+      }
       setSharedFailure(error, "Could not delete league membership.");
     }
   }
