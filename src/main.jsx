@@ -39,8 +39,10 @@ import {
   publishSupabaseLaps,
   publishSupabaseLeagueMembership,
   publishSupabaseMedia,
-  signInOrSignUpWithSupabase,
+  resendSupabaseConfirmation,
+  signInWithSupabase,
   signOutSupabase,
+  signUpWithSupabase,
   supabase,
   supabaseAnonKey,
   supabaseEnabled,
@@ -1327,6 +1329,7 @@ function App() {
   const [k1LapText, setK1LapText] = useState("");
   const [k1LapDate, setK1LapDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [authEmail, setAuthEmail] = useState("");
+  const [authMode, setAuthMode] = useState("sign-in");
   const [newAccountName, setNewAccountName] = useState("");
   const [newAccountPassword, setNewAccountPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -1476,10 +1479,15 @@ function App() {
     minute: "2-digit"
   }).format(now);
   const sharedStatusLabel = backendStatus === "connected"
-    ? `${supabaseEnabled ? "Supabase connected" : "Shared backend connected"}${lastSharedSync ? ` / ${new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(lastSharedSync))}` : ""}`
+    ? `${supabaseEnabled ? `Supabase public data connected / ${supabaseSession?.user ? "signed in for publishing" : "sign in to publish"}` : "Shared backend connected"}${lastSharedSync ? ` / ${new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(lastSharedSync))}` : ""}`
     : backendStatus === "checking"
       ? `Checking ${supabaseEnabled ? "Supabase" : "shared backend"}`
       : `Local-only mode${backendStatusDetail ? ` / ${backendStatusDetail}` : ""}`;
+  const authStatusLabel = authStatus === "signed-in"
+    ? `signed in as ${supabaseSession?.user?.email}`
+    : authStatus === "signed-out"
+      ? "signed out. Public leaderboards can load, but publishing needs sign-in."
+      : authStatus;
   const missingSupabaseEnv = {
     url: !supabaseUrl,
     anonKey: !supabaseAnonKey
@@ -1570,8 +1578,9 @@ function App() {
 
   useEffect(() => {
     if (backendStatus !== "connected") return;
+    if (supabaseEnabled && !supabaseSession?.user) return;
     publishSharedLaps(lapTimes);
-  }, [backendStatus, lapTimes]);
+  }, [backendStatus, lapTimes, supabaseSession?.user?.id]);
 
   useEffect(() => {
     saveStored("lapboard-auto-publish-laps", autoPublishLaps);
@@ -1579,8 +1588,9 @@ function App() {
 
   useEffect(() => {
     if (!autoPublishLaps || backendStatus !== "connected") return;
+    if (supabaseEnabled && !supabaseSession?.user) return;
     publishOwnLaps("all", { silent: true });
-  }, [autoPublishLaps, backendStatus, lapTimes, account.username]);
+  }, [autoPublishLaps, backendStatus, lapTimes, account.username, supabaseSession?.user?.id]);
 
   useEffect(() => {
     if (backendStatus !== "connected") return;
@@ -1732,32 +1742,34 @@ function App() {
     const email = authEmail.trim();
     const username = newAccountName.trim();
     const password = newAccountPassword.trim();
+    const creatingAccount = authMode === "create-account";
 
-    if (!email || !username || password.length < 6) {
-      setMessage("Enter an email, username, and at least 6 password characters.");
+    if (!email || password.length < 6 || (creatingAccount && !username)) {
+      setMessage(creatingAccount
+        ? "Enter an email, username, and at least 6 password characters."
+        : "Enter your email and at least 6 password characters.");
       return;
     }
 
     try {
-      const result = await signInOrSignUpWithSupabase({ email, password, username });
+      const result = creatingAccount
+        ? await signUpWithSupabase({ email, password, username })
+        : await signInWithSupabase({ email, password });
       if (!result.session) {
-        setMessage("Account created. Check your email to confirm your Supabase account, then sign in.");
+        setMessage("Account created. Check your email to verify it, then sign in.");
+        setAuthMode("sign-in");
         return;
       }
 
       const remoteAccount = await loadSupabaseAccount(result.session, username);
-      await saveSupabaseProfile({
-        username: remoteAccount?.username || username,
-        onboardingComplete: remoteAccount?.onboardingComplete || false
-      });
       setAuthEmail("");
       setNewAccountPassword("");
       setNewAccountName("");
       setShowOnboarding(!remoteAccount?.onboardingComplete);
-      setMessage(result.created ? "Supabase account created and signed in." : "Signed in with Supabase.");
+      setMessage(result.created ? "Account created and signed in." : "Signed in.");
       syncSharedData({ showMessage: false });
     } catch (error) {
-      setMessage(error.message || "Supabase sign in failed.");
+      setMessage(error.message || (creatingAccount ? "Could not create account." : "Sign in failed."));
     }
   }
 
@@ -1769,6 +1781,21 @@ function App() {
       setMessage("Signed out of Supabase.");
     } catch (error) {
       setMessage(error.message || "Could not sign out.");
+    }
+  }
+
+  async function resendConfirmationEmail() {
+    const email = authEmail.trim();
+    if (!email) {
+      setMessage("Enter the email you used for the account first.");
+      return;
+    }
+
+    try {
+      await resendSupabaseConfirmation(email);
+      setMessage(`Sent another confirmation email to ${email}. Check spam/promotions if it does not show up.`);
+    } catch (error) {
+      setMessage(error.message || "Could not resend the confirmation email.");
     }
   }
 
@@ -1862,6 +1889,13 @@ function App() {
 
   async function publishSharedLaps(lapsToPublish) {
     if (suppressLapPublishRef.current) return;
+    if (supabaseEnabled && !supabaseSession?.user) {
+      setSharedOperationFailure(
+        new Error("Sign in with Supabase to publish laps. Your laps were saved locally."),
+        "Sign in with Supabase to publish laps."
+      );
+      return;
+    }
 
     const publicLaps = getPublicLaps(lapsToPublish)
       .filter((lap) => !supabaseEnabled || lap.player.toLowerCase() === account.username.toLowerCase())
@@ -2636,7 +2670,11 @@ function App() {
         window.setTimeout(() => {
           suppressLeaguePublishRef.current = false;
         }, 0);
-        setMessage(`Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}.`);
+        setMessage(
+          supabaseEnabled
+            ? `Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} locally from ${file.name}. Sign in with Supabase to publish them.`
+            : `Imported ${importedLapTimes.length} lap${importedLapTimes.length === 1 ? "" : "s"} from ${file.name}.`
+        );
       }
     } catch {
       suppressLapPublishRef.current = false;
@@ -2817,6 +2855,95 @@ function App() {
     } catch (error) {
       setSharedFailure(error, "Could not delete team.");
     }
+  }
+
+  if (supabaseEnabled && authStatus !== "signed-in") {
+    const creatingAccount = authMode === "create-account";
+
+    return (
+      <main className="auth-gate" style={getThemeStyle({ ...defaultTheme, ...theme })}>
+        <section className="auth-card" aria-labelledby="auth-title">
+          <div className="auth-brand">
+            <img className="brand-logo" src="/lapboardlogo.png" alt="" />
+            <span>Lap<span>Board</span></span>
+          </div>
+
+          <div className="auth-copy">
+            <p className="helper-text">Driver account required</p>
+            <h1 id="auth-title">{creatingAccount ? "Create your LapBoard account" : "Sign in to LapBoard"}</h1>
+            <p>
+              Your account keeps profiles, laps, leaderboards, leagues, teams, and media tied to one Supabase login.
+            </p>
+          </div>
+
+          <div className="auth-mode-toggle" role="tablist" aria-label="Account action">
+            <button
+              type="button"
+              className={authMode === "sign-in" ? "active" : ""}
+              onClick={() => setAuthMode("sign-in")}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              className={creatingAccount ? "active" : ""}
+              onClick={() => setAuthMode("create-account")}
+            >
+              Create account
+            </button>
+          </div>
+
+          <form className="auth-form" onSubmit={handleSupabaseAuth}>
+            <label className="field">
+              <span className="field-label">Email</span>
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(event) => setAuthEmail(event.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+              />
+            </label>
+
+            {creatingAccount && (
+              <label className="field">
+                <span className="field-label">Username</span>
+                <input
+                  value={newAccountName}
+                  onChange={(event) => setNewAccountName(event.target.value)}
+                  placeholder="Driver name"
+                  autoComplete="username"
+                />
+              </label>
+            )}
+
+            <label className="field">
+              <span className="field-label">Password</span>
+              <input
+                type="password"
+                value={newAccountPassword}
+                onChange={(event) => setNewAccountPassword(event.target.value)}
+                placeholder="At least 6 characters"
+                autoComplete={creatingAccount ? "new-password" : "current-password"}
+              />
+            </label>
+
+            <button className="primary-button" type="submit">
+              <KeyRound size={16} aria-hidden="true" />
+              {creatingAccount ? "Create account" : "Sign in"}
+            </button>
+          </form>
+
+          <div className="auth-support">
+            {authStatus === "checking" && <p>Checking for an existing session...</p>}
+            {message && <p>{message}</p>}
+            <button className="ghost-button" type="button" onClick={resendConfirmationEmail}>
+              Resend verification email
+            </button>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -4204,45 +4331,36 @@ function App() {
               <input type="file" accept="image/*" onChange={handleProfilePhotoUpload} />
             </label>
 
-            <form className="inline-form" onSubmit={createAccount}>
-              {supabaseEnabled && (
+            {!supabaseEnabled && (
+              <form className="inline-form" onSubmit={createAccount}>
                 <input
-                  type="email"
-                  value={authEmail}
-                  onChange={(event) => setAuthEmail(event.target.value)}
-                  placeholder="Email"
-                  autoComplete="email"
+                  value={newAccountName}
+                  onChange={(event) => setNewAccountName(event.target.value)}
+                  placeholder="Username"
+                  autoComplete="username"
                 />
-              )}
-              <input
-                value={newAccountName}
-                onChange={(event) => setNewAccountName(event.target.value)}
-                placeholder="Username"
-                autoComplete="username"
-              />
-              <input
-                type="password"
-                value={newAccountPassword}
-                onChange={(event) => setNewAccountPassword(event.target.value)}
-                placeholder="Password"
-                autoComplete="current-password"
-              />
-              <button className="primary-button" type="submit">
-                <KeyRound size={16} aria-hidden="true" />
-                {supabaseEnabled ? "Sign in / create" : "Use account"}
-              </button>
-            </form>
+                <input
+                  type="password"
+                  value={newAccountPassword}
+                  onChange={(event) => setNewAccountPassword(event.target.value)}
+                  placeholder="Password"
+                  autoComplete="current-password"
+                />
+                <button className="primary-button" type="submit">
+                  <KeyRound size={16} aria-hidden="true" />
+                  Use account
+                </button>
+              </form>
+            )}
 
             {supabaseEnabled && (
               <div className="profile-auth-status">
                 <p className="helper-text">
-                  Supabase auth: {authStatus === "signed-in" ? `signed in as ${supabaseSession?.user?.email}` : authStatus}
+                  Supabase auth: {authStatusLabel}
                 </p>
-                {supabaseSession?.user && (
-                  <button className="ghost-button profile-action" type="button" onClick={handleSupabaseSignOut}>
-                    Sign out
-                  </button>
-                )}
+                <button className="ghost-button profile-action" type="button" onClick={handleSupabaseSignOut}>
+                  Sign out
+                </button>
               </div>
             )}
 

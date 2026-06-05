@@ -131,6 +131,7 @@ export async function getCurrentSupabaseSession() {
 export async function signInOrSignUpWithSupabase({ email, password, username }) {
   const client = requireSupabase();
   const normalizedEmail = email.trim().toLowerCase();
+  const emailRedirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
 
   const signIn = await client.auth.signInWithPassword({
     email: normalizedEmail,
@@ -145,6 +146,7 @@ export async function signInOrSignUpWithSupabase({ email, password, username }) 
     email: normalizedEmail,
     password,
     options: {
+      emailRedirectTo,
       data: {
         username: username.trim()
       }
@@ -153,6 +155,52 @@ export async function signInOrSignUpWithSupabase({ email, password, username }) 
 
   if (signUp.error) throw signUp.error;
   return { session: signUp.data.session, user: signUp.data.user, created: true };
+}
+
+export async function signInWithSupabase({ email, password }) {
+  const client = requireSupabase();
+  const normalizedEmail = email.trim().toLowerCase();
+  const { data, error } = await client.auth.signInWithPassword({
+    email: normalizedEmail,
+    password
+  });
+
+  if (error) throw error;
+  return { session: data.session, user: data.user, created: false };
+}
+
+export async function signUpWithSupabase({ email, password, username }) {
+  const client = requireSupabase();
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailRedirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
+  const { data, error } = await client.auth.signUp({
+    email: normalizedEmail,
+    password,
+    options: {
+      emailRedirectTo,
+      data: {
+        username: username.trim()
+      }
+    }
+  });
+
+  if (error) throw error;
+  return { session: data.session, user: data.user, created: true };
+}
+
+export async function resendSupabaseConfirmation(email) {
+  const client = requireSupabase();
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailRedirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
+  const { error } = await client.auth.resend({
+    type: "signup",
+    email: normalizedEmail,
+    options: {
+      emailRedirectTo
+    }
+  });
+
+  if (error) throw error;
 }
 
 export async function signOutSupabase() {
