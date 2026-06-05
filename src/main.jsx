@@ -1737,6 +1737,22 @@ function App() {
     if (supabaseEnabled) setBackendStatus("connected");
   }
 
+  async function getSupabaseWriteSession() {
+    if (!supabaseEnabled) return null;
+    if (supabaseSession?.user) return supabaseSession;
+
+    const session = await getCurrentSupabaseSession();
+    if (session?.user) {
+      setSupabaseSession(session);
+      setAuthStatus("signed-in");
+      setSharedConnected();
+      return session;
+    }
+
+    setAuthStatus("signed-out");
+    return null;
+  }
+
   async function handleSupabaseAuth(event) {
     event.preventDefault();
     const email = authEmail.trim();
@@ -1761,6 +1777,9 @@ function App() {
         return;
       }
 
+      setSupabaseSession(result.session);
+      setAuthStatus("signed-in");
+      setSharedConnected();
       const remoteAccount = await loadSupabaseAccount(result.session, username);
       setAuthEmail("");
       setNewAccountPassword("");
@@ -1889,10 +1908,11 @@ function App() {
 
   async function publishSharedLaps(lapsToPublish) {
     if (suppressLapPublishRef.current) return;
-    if (supabaseEnabled && !supabaseSession?.user) {
+    const writeSession = supabaseEnabled ? await getSupabaseWriteSession() : null;
+    if (supabaseEnabled && !writeSession?.user) {
       setSharedOperationFailure(
-        new Error("Sign in with Supabase to publish laps. Your laps were saved locally."),
-        "Sign in with Supabase to publish laps."
+        new Error("Sign in with Supabase to upload laps. Your laps were saved locally."),
+        "Sign in with Supabase to upload laps."
       );
       return;
     }
@@ -1906,8 +1926,7 @@ function App() {
 
     try {
       if (supabaseEnabled) {
-        if (!supabaseSession?.user) throw new Error("Sign in before publishing public laps.");
-        const savedLaps = await publishSupabaseLaps(publicLaps, supabaseSession.user.id);
+        const savedLaps = await publishSupabaseLaps(publicLaps, writeSession.user.id);
         setLapTimes((current) => mergeById(current, savedLaps));
         setSharedConnected();
         return;
@@ -2622,7 +2641,8 @@ function App() {
       const nextCurrentUser = nextAccounts.some((item) => item.username === parsed.currentUser)
         ? parsed.currentUser
         : nextAccounts[0]?.username || account.username;
-      const shouldPublishImportedLapsToSupabase = Boolean(supabaseEnabled && supabaseSession?.user);
+      const importWriteSession = supabaseEnabled ? await getSupabaseWriteSession() : null;
+      const shouldPublishImportedLapsToSupabase = Boolean(importWriteSession?.user);
       if (shouldPublishImportedLapsToSupabase) suppressLapPublishRef.current = true;
       if (supabaseEnabled) suppressLeaguePublishRef.current = true;
       importedMemberships.forEach((membership) => {
@@ -2645,13 +2665,13 @@ function App() {
         const importedOwnLaps = importedOwnSourceLaps
           .map((lap, index) => ({
             ...lap,
-            id: `import-${supabaseSession.user.id}-${Date.now()}-${index}`,
+            id: `import-${importWriteSession.user.id}-${Date.now()}-${index}`,
             player: account.username,
             visibility: "public"
           }));
 
         try {
-          const savedLaps = await publishSupabaseLaps(importedOwnLaps, supabaseSession.user.id);
+          const savedLaps = await publishSupabaseLaps(importedOwnLaps, importWriteSession.user.id);
           savedLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
           importedOwnSourceLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
           setSharedConnected();
@@ -2857,7 +2877,7 @@ function App() {
     }
   }
 
-  if (supabaseEnabled && authStatus !== "signed-in") {
+  if (supabaseEnabled && (authStatus !== "signed-in" || !supabaseSession?.user)) {
     const creatingAccount = authMode === "create-account";
 
     return (
