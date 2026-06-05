@@ -1345,6 +1345,7 @@ function App() {
   const [supabaseSession, setSupabaseSession] = useState(null);
   const [authStatus, setAuthStatus] = useState(supabaseEnabled ? "checking" : "local");
   const [authRedirectError, setAuthRedirectError] = useState("");
+  const [verificationCooldownUntil, setVerificationCooldownUntil] = useState(0);
   const [lastSharedSync, setLastSharedSync] = useState("");
   const [autoPublishLaps, setAutoPublishLaps] = useState(() => Boolean(loadStored("lapboard-auto-publish-laps", false)));
   const [leagueTab, setLeagueTab] = useState("available");
@@ -1489,6 +1490,7 @@ function App() {
     : authStatus === "signed-out"
       ? "signed out. Public leaderboards can load, but publishing needs sign-in."
       : authStatus;
+  const verificationCooldownSeconds = Math.max(0, Math.ceil((verificationCooldownUntil - now.getTime()) / 1000));
   const missingSupabaseEnv = {
     url: !supabaseUrl,
     anonKey: !supabaseAnonKey
@@ -1788,6 +1790,7 @@ function App() {
         : await signInWithSupabase({ email, password });
       if (!result.session) {
         setMessage("Account created. Check your email to verify it, then sign in.");
+        setVerificationCooldownUntil(Date.now() + 120000);
         setAuthMode("sign-in");
         return;
       }
@@ -1825,11 +1828,24 @@ function App() {
       return;
     }
 
+    if (verificationCooldownSeconds > 0) {
+      setMessage(`Wait ${Math.ceil(verificationCooldownSeconds / 60)} minute${Math.ceil(verificationCooldownSeconds / 60) === 1 ? "" : "s"} before resending verification.`);
+      return;
+    }
+
     try {
       await resendSupabaseConfirmation(email);
+      setVerificationCooldownUntil(Date.now() + 120000);
       setMessage(`Sent another confirmation email to ${email}. Check spam/promotions if it does not show up.`);
     } catch (error) {
-      setMessage(error.message || "Could not resend the confirmation email.");
+      const detail = error.message || "Could not resend the confirmation email.";
+      if (/rate limit/i.test(detail)) {
+        setVerificationCooldownUntil(Date.now() + 600000);
+        setMessage("Supabase email rate limit was reached. Wait about 10 minutes before trying again, or configure custom SMTP for higher limits.");
+        return;
+      }
+
+      setMessage(detail);
     }
   }
 
@@ -2973,8 +2989,15 @@ function App() {
             {authStatus === "checking" && <p>Checking for an existing session...</p>}
             {authRedirectError && <p className="connection-error">{authRedirectError}</p>}
             {message && <p>{message}</p>}
-            <button className="ghost-button" type="button" onClick={resendConfirmationEmail}>
-              Resend verification email
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={resendConfirmationEmail}
+              disabled={verificationCooldownSeconds > 0}
+            >
+              {verificationCooldownSeconds > 0
+                ? `Resend in ${Math.ceil(verificationCooldownSeconds / 60)}m`
+                : "Resend verification email"}
             </button>
           </div>
         </section>
