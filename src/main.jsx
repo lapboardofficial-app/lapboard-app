@@ -82,6 +82,13 @@ const API_BASE_URL = (
   || (import.meta.env.PROD ? "" : "http://127.0.0.1:3010")
 ).replace(/\/$/, "");
 const isProductionBuild = Boolean(import.meta.env.PROD);
+function getSafeHost(value) {
+  try {
+    return value ? new URL(value).host : "missing";
+  } catch {
+    return "invalid URL";
+  }
+}
 const defaultTheme = {
   mode: "light",
   accent: "#df0d22",
@@ -1495,6 +1502,7 @@ function App() {
     url: !supabaseUrl,
     anonKey: !supabaseAnonKey
   };
+  const supabaseHost = getSafeHost(supabaseUrl);
   const showProductionSupabaseWarning = isProductionBuild && !supabaseEnabled;
 
   useEffect(() => {
@@ -1806,7 +1814,9 @@ function App() {
       setMessage(result.created ? "Account created and signed in." : "Signed in.");
       syncSharedData({ showMessage: false });
     } catch (error) {
-      setMessage(error.message || (creatingAccount ? "Could not create account." : "Sign in failed."));
+      const detail = error.message || (creatingAccount ? "Could not create account." : "Sign in failed.");
+      if (/could not reach supabase|failed to fetch/i.test(detail)) setAuthRedirectError(detail);
+      setMessage(detail);
     }
   }
 
@@ -1839,6 +1849,12 @@ function App() {
       setMessage(`Sent another confirmation email to ${email}. Check spam/promotions if it does not show up.`);
     } catch (error) {
       const detail = error.message || "Could not resend the confirmation email.";
+      if (/could not reach supabase|failed to fetch/i.test(detail)) {
+        setAuthRedirectError(detail);
+        setMessage(detail);
+        return;
+      }
+
       if (/rate limit/i.test(detail)) {
         setVerificationCooldownUntil(Date.now() + 600000);
         setMessage("Supabase email rate limit was reached. Wait about 10 minutes before trying again, or configure custom SMTP for higher limits.");
@@ -2986,6 +3002,9 @@ function App() {
           </form>
 
           <div className="auth-support">
+            <p>
+              Supabase config: {supabaseHost} / anon key {supabaseAnonKey ? "loaded" : "missing"}
+            </p>
             {authStatus === "checking" && <p>Checking for an existing session...</p>}
             {authRedirectError && <p className="connection-error">{authRedirectError}</p>}
             {message && <p>{message}</p>}

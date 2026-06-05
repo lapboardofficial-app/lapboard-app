@@ -19,6 +19,27 @@ function requireSupabase() {
   return supabase;
 }
 
+function isFetchFailure(error) {
+  return /failed to fetch|load failed|networkerror|network request failed/i.test(error?.message || "");
+}
+
+function normalizeSupabaseError(error, action) {
+  if (!error) return null;
+  if (isFetchFailure(error)) {
+    return new Error(`Could not reach Supabase while ${action}. Check VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, and that your Supabase project is active. If this fails in every browser, it is probably Vercel/Supabase config rather than a browser setting.`);
+  }
+
+  return error;
+}
+
+async function runSupabaseRequest(action, request) {
+  try {
+    return await request();
+  } catch (error) {
+    throw normalizeSupabaseError(error, action);
+  }
+}
+
 export function profileToAccount(profile, fallbackEmail = "") {
   const username = profile?.username || fallbackEmail?.split("@")[0] || "Driver";
   return {
@@ -123,8 +144,8 @@ function rowToTeam(row) {
 
 export async function getCurrentSupabaseSession() {
   if (!supabase) return null;
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
+  const { data, error } = await runSupabaseRequest("checking your Supabase session", () => supabase.auth.getSession());
+  if (error) throw normalizeSupabaseError(error, "checking your Supabase session");
   return data.session;
 }
 
@@ -133,16 +154,16 @@ export async function signInOrSignUpWithSupabase({ email, password, username }) 
   const normalizedEmail = email.trim().toLowerCase();
   const emailRedirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
 
-  const signIn = await client.auth.signInWithPassword({
+  const signIn = await runSupabaseRequest("signing in", () => client.auth.signInWithPassword({
     email: normalizedEmail,
     password
-  });
+  }));
 
   if (!signIn.error) {
     return { session: signIn.data.session, user: signIn.data.user, created: false };
   }
 
-  const signUp = await client.auth.signUp({
+  const signUp = await runSupabaseRequest("creating your account", () => client.auth.signUp({
     email: normalizedEmail,
     password,
     options: {
@@ -151,21 +172,21 @@ export async function signInOrSignUpWithSupabase({ email, password, username }) 
         username: username.trim()
       }
     }
-  });
+  }));
 
-  if (signUp.error) throw signUp.error;
+  if (signUp.error) throw normalizeSupabaseError(signUp.error, "creating your account");
   return { session: signUp.data.session, user: signUp.data.user, created: true };
 }
 
 export async function signInWithSupabase({ email, password }) {
   const client = requireSupabase();
   const normalizedEmail = email.trim().toLowerCase();
-  const { data, error } = await client.auth.signInWithPassword({
+  const { data, error } = await runSupabaseRequest("signing in", () => client.auth.signInWithPassword({
     email: normalizedEmail,
     password
-  });
+  }));
 
-  if (error) throw error;
+  if (error) throw normalizeSupabaseError(error, "signing in");
   return { session: data.session, user: data.user, created: false };
 }
 
@@ -173,7 +194,7 @@ export async function signUpWithSupabase({ email, password, username }) {
   const client = requireSupabase();
   const normalizedEmail = email.trim().toLowerCase();
   const emailRedirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
-  const { data, error } = await client.auth.signUp({
+  const { data, error } = await runSupabaseRequest("creating your account", () => client.auth.signUp({
     email: normalizedEmail,
     password,
     options: {
@@ -182,9 +203,9 @@ export async function signUpWithSupabase({ email, password, username }) {
         username: username.trim()
       }
     }
-  });
+  }));
 
-  if (error) throw error;
+  if (error) throw normalizeSupabaseError(error, "creating your account");
   return { session: data.session, user: data.user, created: true };
 }
 
@@ -192,15 +213,15 @@ export async function resendSupabaseConfirmation(email) {
   const client = requireSupabase();
   const normalizedEmail = email.trim().toLowerCase();
   const emailRedirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
-  const { error } = await client.auth.resend({
+  const { error } = await runSupabaseRequest("resending the verification email", () => client.auth.resend({
     type: "signup",
     email: normalizedEmail,
     options: {
       emailRedirectTo
     }
-  });
+  }));
 
-  if (error) throw error;
+  if (error) throw normalizeSupabaseError(error, "resending the verification email");
 }
 
 export async function signOutSupabase() {
@@ -247,12 +268,12 @@ export async function upsertProfile(user, accountPatch = {}) {
 
 export async function loadSupabaseBootstrap() {
   const client = requireSupabase();
-  const [laps, media, teams, memberships] = await Promise.all([
+  const [laps, media, teams, memberships] = await runSupabaseRequest("loading shared data", () => Promise.all([
     client.from("laps").select("*").order("lap_date", { ascending: false }),
     client.from("media_entries").select("*").order("created_at", { ascending: false }),
     client.from("teams").select("*, team_members(player)").order("name", { ascending: true }),
     client.from("league_memberships").select("*").order("joined_at", { ascending: false })
-  ]);
+  ]));
 
   const firstError = [laps, media, teams, memberships].find((result) => result.error)?.error;
   if (firstError) throw firstError;
