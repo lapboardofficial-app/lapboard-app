@@ -89,6 +89,11 @@ function getSafeHost(value) {
     return "invalid URL";
   }
 }
+
+function looksLikeSupabaseAnonKey(value) {
+  const parts = String(value || "").split(".");
+  return parts.length === 3 && value.startsWith("eyJ");
+}
 const defaultTheme = {
   mode: "light",
   accent: "#df0d22",
@@ -1503,6 +1508,7 @@ function App() {
     anonKey: !supabaseAnonKey
   };
   const supabaseHost = getSafeHost(supabaseUrl);
+  const anonKeyLooksValid = looksLikeSupabaseAnonKey(supabaseAnonKey);
   const showProductionSupabaseWarning = isProductionBuild && !supabaseEnabled;
 
   useEffect(() => {
@@ -3003,7 +3009,7 @@ function App() {
 
           <div className="auth-support">
             <p>
-              Supabase config: {supabaseHost} / anon key {supabaseAnonKey ? "loaded" : "missing"}
+              Supabase config: {supabaseHost} / anon key {supabaseAnonKey ? anonKeyLooksValid ? "loaded" : "loaded but wrong format" : "missing"}
             </p>
             {authStatus === "checking" && <p>Checking for an existing session...</p>}
             {authRedirectError && <p className="connection-error">{authRedirectError}</p>}
