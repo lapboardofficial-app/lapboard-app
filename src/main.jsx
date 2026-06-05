@@ -1344,6 +1344,7 @@ function App() {
   const [lastSharedError, setLastSharedError] = useState(() => loadStored("lapboard-last-shared-error", ""));
   const [supabaseSession, setSupabaseSession] = useState(null);
   const [authStatus, setAuthStatus] = useState(supabaseEnabled ? "checking" : "local");
+  const [authRedirectError, setAuthRedirectError] = useState("");
   const [lastSharedSync, setLastSharedSync] = useState("");
   const [autoPublishLaps, setAutoPublishLaps] = useState(() => Boolean(loadStored("lapboard-auto-publish-laps", false)));
   const [leagueTab, setLeagueTab] = useState("available");
@@ -1528,6 +1529,20 @@ function App() {
     if (!supabaseEnabled || !supabase) return undefined;
 
     let active = true;
+    const authParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const authErrorCode = authParams.get("error_code");
+    const authError = authParams.get("error");
+    const authDescription = authParams.get("error_description");
+
+    if (authErrorCode || authError) {
+      const detail = authErrorCode === "otp_expired"
+        ? "That verification link expired. Resend the verification email, then open the newest link."
+        : authDescription || "Supabase could not complete that sign-in link.";
+      setAuthRedirectError(detail);
+      setMessage(detail);
+      setAuthStatus("signed-out");
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
 
     getCurrentSupabaseSession()
       .then(async (session) => {
@@ -2956,6 +2971,7 @@ function App() {
 
           <div className="auth-support">
             {authStatus === "checking" && <p>Checking for an existing session...</p>}
+            {authRedirectError && <p className="connection-error">{authRedirectError}</p>}
             {message && <p>{message}</p>}
             <button className="ghost-button" type="button" onClick={resendConfirmationEmail}>
               Resend verification email
