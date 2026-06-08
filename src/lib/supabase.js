@@ -40,6 +40,34 @@ async function runSupabaseRequest(action, request) {
   }
 }
 
+export async function testSupabaseConnection() {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return {
+      ok: false,
+      detail: "Supabase URL or anon key is missing from this deployment."
+    };
+  }
+
+  try {
+    const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/auth/v1/health`, {
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`
+      }
+    });
+    const text = await response.text().catch(() => "");
+    return {
+      ok: response.ok,
+      detail: `Supabase health returned HTTP ${response.status}${text ? `: ${text.slice(0, 140)}` : ""}`
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: normalizeSupabaseError(error, "testing the Supabase connection")?.message || "Could not test Supabase."
+    };
+  }
+}
+
 export function profileToAccount(profile, fallbackEmail = "") {
   const username = profile?.username || fallbackEmail?.split("@")[0] || "Driver";
   return {

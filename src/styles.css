@@ -1668,24 +1668,6 @@ tbody tr.leader {
   gap: 10px;
 }
 
-.standings-frame {
-  min-height: 180px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--background) 70%, var(--surface));
-}
-
-.standings-frame iframe {
-  width: 100%;
-  height: 280px;
-  border: 0;
-}
-
-.standings-frame p {
-  padding: 16px;
-}
-
 .result-list {
   display: grid;
   gap: 8px;

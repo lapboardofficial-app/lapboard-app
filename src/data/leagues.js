@@ -124,18 +124,3 @@ export const events = [
     ]
   }
 ];
-
-// Paste a standings URL or a full iframe snippet for each league/location here.
-// Example:
-// "k1-speed-teen-2026": {
-//   "k1-torrance": '<iframe src="https://example.com/standings"></iframe>'
-// }
-export const leagueStandingsEmbeds = {
-  "k1-speed-teen-2026": {
-    "k1-torrance": "https://airtable.com/appuxdwBxcnRTg40t/shrERRCgAgME1JA1P/tblsFupi597guYxbS?viewControls=on"
-  },
-  "k1-speed-adult-2026": {},
-  "k1-circuit-semi-pro-junior-2026": {},
-  "k1-circuit-semi-pro-senior-heavy-2026": {},
-  "k1-circuit-semi-pro-senior-light-2026": {}
-};

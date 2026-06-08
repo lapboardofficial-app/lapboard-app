@@ -22,7 +22,7 @@ import {
   UsersRound
 } from "lucide-react";
 import { kartOptions } from "./data/kartOptions";
-import { K1_GP_NIGHT_BONUS_XP, events, leagueStandingsEmbeds, leagues } from "./data/leagues";
+import { K1_GP_NIGHT_BONUS_XP, events, leagues } from "./data/leagues";
 import { tracks } from "./data/tracks";
 import { ENABLE_SAMPLE_DATA, sampleAccounts, sampleLapTimes } from "./data/sampleData";
 import {
@@ -47,6 +47,7 @@ import {
   supabaseAnonKey,
   supabaseEnabled,
   supabaseUrl,
+  testSupabaseConnection,
   upsertProfile
 } from "./lib/supabase";
 import "./styles.css";
@@ -736,6 +737,15 @@ function getAiLeaderboard(lapTimes, username, trackQuery, layoutFilter = ALL_LAY
   const skillRatio = skillLevel / 100;
   const trackCondition = getAiPercentCondition(options.trackCondition, "track");
   const kartCondition = getAiPercentCondition(options.kartCondition, "kart");
+  const allPerformanceMaxed = (
+    skillRatio === 1
+    && trackCondition.ratio === 1
+    && kartCondition.ratio === 1
+  );
+  const combinedPerformance = skillRatio * trackCondition.ratio * kartCondition.ratio;
+  const allowedRecordGainMs = allPerformanceMaxed
+    ? AI_RECORD_FLOOR_MS
+    : Math.min(AI_RECORD_FLOOR_MS - 1, Math.floor(AI_RECORD_FLOOR_MS * combinedPerformance));
   const candidates = [];
 
   matchingTracks.forEach((track) => {
@@ -777,8 +787,11 @@ function getAiLeaderboard(lapTimes, username, trackQuery, layoutFilter = ALL_LAY
       * kartCondition.multiplier
       * (1 + fieldVariation)
     ));
-    const recordFloorMs = candidate.recordMs ? Math.max(1000, candidate.recordMs - AI_RECORD_FLOOR_MS) : 1000;
-    const ms = Math.max(recordFloorMs, simulatedMs);
+    const recordFloorMs = candidate.recordMs
+      ? Math.max(1000, candidate.recordMs - allowedRecordGainMs)
+      : 1000;
+    const isBenchmarkLap = allPerformanceMaxed && index < candidates.length && candidate.recordMs;
+    const ms = isBenchmarkLap ? recordFloorMs : Math.max(recordFloorMs, simulatedMs);
 
     return {
       id: `ai-${candidate.trackId}-${candidate.layoutName}-${index}`,
@@ -1167,12 +1180,6 @@ function getLeagueBonusXp(lapTimes, results, memberships, username) {
   return lapBonus + resultBonus;
 }
 
-function getStandingsEmbedSource(leagueId, trackId) {
-  const value = leagueStandingsEmbeds?.[leagueId]?.[trackId] || "";
-  const srcMatch = String(value).match(/src=["']([^"']+)["']/i);
-  return srcMatch?.[1] || value;
-}
-
 function getCell(row, headerMap, names, fallbackIndex) {
   const headerIndex = names.map(normalizeHeader).find((name) => headerMap[name] !== undefined);
   if (headerIndex !== undefined) return row[headerMap[headerIndex]] || "";
@@ -1357,6 +1364,7 @@ function App() {
   const [supabaseSession, setSupabaseSession] = useState(null);
   const [authStatus, setAuthStatus] = useState(supabaseEnabled ? "checking" : "local");
   const [authRedirectError, setAuthRedirectError] = useState("");
+  const [supabaseTestResult, setSupabaseTestResult] = useState("");
   const [verificationCooldownUntil, setVerificationCooldownUntil] = useState(0);
   const [lastSharedSync, setLastSharedSync] = useState("");
   const [autoPublishLaps, setAutoPublishLaps] = useState(() => Boolean(loadStored("lapboard-auto-publish-laps", false)));
@@ -1869,6 +1877,13 @@ function App() {
 
       setMessage(detail);
     }
+  }
+
+  async function runSupabaseConnectionTest() {
+    setSupabaseTestResult("Testing Supabase connection...");
+    const result = await testSupabaseConnection();
+    setSupabaseTestResult(result.detail);
+    setMessage(result.detail);
   }
 
   async function syncSharedData({ showMessage = false } = {}) {
@@ -3011,9 +3026,13 @@ function App() {
             <p>
               Supabase config: {supabaseHost} / anon key {supabaseAnonKey ? anonKeyLooksValid ? "loaded" : "loaded but wrong format" : "missing"}
             </p>
+            {supabaseTestResult && <p>{supabaseTestResult}</p>}
             {authStatus === "checking" && <p>Checking for an existing session...</p>}
             {authRedirectError && <p className="connection-error">{authRedirectError}</p>}
             {message && <p>{message}</p>}
+            <button className="ghost-button" type="button" onClick={runSupabaseConnectionTest}>
+              Test Supabase connection
+            </button>
             <button
               className="ghost-button"
               type="button"
@@ -3315,7 +3334,7 @@ function App() {
                   <ListChecks size={20} aria-hidden="true" />
                 </span>
                 <h1 id="onboarding-title">Leagues, events, and profiles</h1>
-                <p>Leagues/Events helps you join current series, track race dates, add results, and view standings embeds when configured.</p>
+                <p>Leagues/Events helps you join current series, track race dates, add results, and follow your season.</p>
                 <div className="feature-tour-list">
                   <div>
                     <strong>League results</strong>
@@ -4273,7 +4292,6 @@ function App() {
               <section className="league-stack">
                 {userLeagueMemberships.map((membership) => {
                   const league = getLeague(membership.leagueId);
-                  const standingsSrc = getStandingsEmbedSource(membership.leagueId, membership.trackId);
                   const leagueMembers = getLeagueMembers(leagueMemberships, membership.leagueId, membership.trackId);
                   return (
                     <article className="league-card joined-league" key={membership.id}>
@@ -4299,16 +4317,11 @@ function App() {
                           ))}
                         </div>
                       </div>
-                      {standingsSrc && (
-                        <div className="standings-frame">
-                          <iframe src={standingsSrc} title={`${league?.name || "League"} standings`} />
-                        </div>
-                      )}
                     </article>
                   );
                 })}
                 {!userLeagueMemberships.length && (
-                  <p className="empty-state">Join a league to see your 2026 schedule and standings here.</p>
+                  <p className="empty-state">Join a league to see your 2026 schedule and results here.</p>
                 )}
               </section>
 
