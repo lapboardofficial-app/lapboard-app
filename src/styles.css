@@ -776,10 +776,30 @@ img {
 
 .leaderboard-filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.leaderboard-primary-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(360px, 1fr) minmax(170px, 220px);
   gap: 12px;
   align-items: end;
-  margin-bottom: 18px;
+}
+
+.leaderboard-track-search {
+  min-width: 0;
+}
+
+.leaderboard-primary-filters:not(:has(.leaderboard-layout-filter)) .leaderboard-track-search {
+  grid-column: 2 / -1;
+}
+
+.leaderboard-utilities {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .sync-button,
@@ -813,7 +833,7 @@ img {
   accent-color: var(--accent);
 }
 
-.leaderboard-filters > .sync-pill {
+.leaderboard-utilities > .sync-pill {
   align-self: center;
   justify-self: start;
   margin-left: 0;
@@ -1973,7 +1993,23 @@ tbody tr.leader {
   }
 
   .leaderboard-filters {
+    gap: 12px;
+  }
+
+  .leaderboard-primary-filters {
     grid-template-columns: 1fr;
+  }
+
+  .leaderboard-primary-filters:not(:has(.leaderboard-layout-filter)) .leaderboard-track-search {
+    grid-column: auto;
+  }
+
+  .leaderboard-utilities {
+    align-items: stretch;
+  }
+
+  .leaderboard-utilities .sync-pill {
+    width: 100%;
   }
 
   .app-message-toast {

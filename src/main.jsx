@@ -1256,9 +1256,9 @@ function Stat({ label, value }) {
   );
 }
 
-function SearchField({ id, label, icon, value, onChange, placeholder, list }) {
+function SearchField({ id, label, icon, value, onChange, placeholder, list, className = "" }) {
   return (
-    <label className="field">
+    <label className={`field ${className}`.trim()}>
       <span className="field-label">
         {icon}
         {label}
@@ -1415,18 +1415,21 @@ function App() {
   const leaderboardLayoutOptions = selectedLeaderboardTrack ? getTrackLayouts(selectedLeaderboardTrack.id) : [];
   const leaderboardLayoutFilter = selectedLeaderboardTrack && leaderboardLayoutOptions.length > 1 ? leaderboardLayout : ALL_LAYOUTS;
   const leaderboard = useMemo(
-    () => (
-      leaderboardMode === LEADERBOARD_MODE_AI
+    () => {
+      if (!selectedLeaderboardTrack) return [];
+
+      return leaderboardMode === LEADERBOARD_MODE_AI
         ? getAiLeaderboard(visibleLapTimes, account.username, trackQuery, leaderboardLayoutFilter, {
           skillLevel: aiSkillLevel,
           trackCondition: aiTrackCondition,
           kartCondition: aiKartCondition
         })
-        : getLeaderboard(visibleLapTimes, trackQuery, leaderboardLayoutFilter)
-    ),
+        : getLeaderboard(visibleLapTimes, trackQuery, leaderboardLayoutFilter);
+    },
     [
       visibleLapTimes,
       account.username,
+      selectedLeaderboardTrack,
       trackQuery,
       leaderboardLayoutFilter,
       leaderboardMode,
@@ -3572,73 +3575,79 @@ function App() {
               </div>
 
               <div className="leaderboard-filters">
-                <fieldset className="mode-switch" aria-label="Leaderboard mode">
-                  <legend>Mode</legend>
-                  <div>
-                    <button
-                      type="button"
-                      className={leaderboardMode === LEADERBOARD_MODE_REAL ? "active" : ""}
-                      onClick={() => setLeaderboardMode(LEADERBOARD_MODE_REAL)}
-                    >
-                      Real laps
-                    </button>
-                    <button
-                      type="button"
-                      className={leaderboardMode === LEADERBOARD_MODE_AI ? "active" : ""}
-                      onClick={() => setLeaderboardMode(LEADERBOARD_MODE_AI)}
-                    >
-                      AI laps
-                    </button>
-                  </div>
-                </fieldset>
+                <div className="leaderboard-primary-filters">
+                  <fieldset className="mode-switch" aria-label="Leaderboard mode">
+                    <legend>Mode</legend>
+                    <div>
+                      <button
+                        type="button"
+                        className={leaderboardMode === LEADERBOARD_MODE_REAL ? "active" : ""}
+                        onClick={() => setLeaderboardMode(LEADERBOARD_MODE_REAL)}
+                      >
+                        Real laps
+                      </button>
+                      <button
+                        type="button"
+                        className={leaderboardMode === LEADERBOARD_MODE_AI ? "active" : ""}
+                        onClick={() => setLeaderboardMode(LEADERBOARD_MODE_AI)}
+                      >
+                        AI laps
+                      </button>
+                    </div>
+                  </fieldset>
 
-                <SearchField
-                  id="leaderboard-track-search"
-                  label="Track search"
-                  icon={<Search size={15} aria-hidden="true" />}
-                  value={trackQuery}
-                  onChange={setTrackQuery}
-                  placeholder="Search all tracks or type a track name"
-                  list="track-options"
-                />
-
-                {leaderboardLayoutOptions.length > 1 && (
-                  <label className="field">
-                    <span className="field-label">
-                      <Table2 size={15} aria-hidden="true" />
-                      Layout
-                    </span>
-                    <select value={leaderboardLayout} onChange={(event) => setLeaderboardLayout(event.target.value)}>
-                      <option value={ALL_LAYOUTS}>All layouts</option>
-                      {leaderboardLayoutOptions.map((item) => (
-                        <option key={item} value={item}>{item}</option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                <button className="ghost-button sync-button" type="button" onClick={() => syncSharedData({ showMessage: true })}>
-                  Sync shared laps
-                </button>
-                <button className="ghost-button compact-action-button" type="button" onClick={() => publishOwnLaps("all")}>
-                  Publish all
-                </button>
-                <label className="toggle-field compact-toggle">
-                  <input
-                    type="checkbox"
-                    checked={autoPublishLaps}
-                    onChange={(event) => {
-                      setAutoPublishLaps(event.target.checked);
-                      if (event.target.checked) publishOwnLaps("all");
-                    }}
+                  <SearchField
+                    id="leaderboard-track-search"
+                    className="leaderboard-track-search"
+                    label="Track search"
+                    icon={<Search size={15} aria-hidden="true" />}
+                    value={trackQuery}
+                    onChange={setTrackQuery}
+                    placeholder="Select or search for a track"
+                    list="track-options"
                   />
-                  <span>Auto publish</span>
-                </label>
-                <span className={`sync-pill ${backendStatus === "connected" ? "connected" : "local"}`}>
-                  {sharedStatusLabel}
-                </span>
+
+                  {leaderboardLayoutOptions.length > 1 && (
+                    <label className="field leaderboard-layout-filter">
+                      <span className="field-label">
+                        <Table2 size={15} aria-hidden="true" />
+                        Layout
+                      </span>
+                      <select value={leaderboardLayout} onChange={(event) => setLeaderboardLayout(event.target.value)}>
+                        <option value={ALL_LAYOUTS}>All layouts</option>
+                        {leaderboardLayoutOptions.map((item) => (
+                          <option key={item} value={item}>{item}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+
+                <div className="leaderboard-utilities">
+                  <button className="ghost-button sync-button" type="button" onClick={() => syncSharedData({ showMessage: true })}>
+                    Sync shared laps
+                  </button>
+                  <button className="ghost-button compact-action-button" type="button" onClick={() => publishOwnLaps("all")}>
+                    Publish all
+                  </button>
+                  <label className="toggle-field compact-toggle">
+                    <input
+                      type="checkbox"
+                      checked={autoPublishLaps}
+                      onChange={(event) => {
+                        setAutoPublishLaps(event.target.checked);
+                        if (event.target.checked) publishOwnLaps("all");
+                      }}
+                    />
+                    <span>Auto publish</span>
+                  </label>
+                  <span className={`sync-pill ${backendStatus === "connected" ? "connected" : "local"}`}>
+                    {sharedStatusLabel}
+                  </span>
+                </div>
               </div>
 
-              {leaderboardMode === LEADERBOARD_MODE_AI && (
+              {selectedLeaderboardTrack && leaderboardMode === LEADERBOARD_MODE_AI && (
                 <div className="ai-controls" aria-label="AI lap tuning controls">
                   <label className="field range-field">
                     <span className="field-label">AI skill level</span>
@@ -3759,7 +3768,11 @@ function App() {
                     ))}
                     {!leaderboard.length && (
                       <tr>
-                        <td colSpan="8" className="empty-cell">No lap times match this track search.</td>
+                        <td colSpan="8" className="empty-cell">
+                          {selectedLeaderboardTrack
+                            ? "No lap times are available for this track and layout."
+                            : "Select a track above to view its leaderboard."}
+                        </td>
                       </tr>
                     )}
                   </tbody>
