@@ -336,6 +336,16 @@ export async function publishSupabaseLaps(laps, userId) {
   return savedRows.map(rowToLap);
 }
 
+export async function deleteSupabaseLap(lapId, userId) {
+  const client = requireSupabase();
+  const { error } = await client
+    .from("laps")
+    .delete()
+    .eq("id", String(lapId))
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
 export async function publishSupabaseMedia(entry, userId) {
   const client = requireSupabase();
   const { data, error } = await client

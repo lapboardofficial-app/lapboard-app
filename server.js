@@ -342,6 +342,15 @@ async function handleRequest(req, res) {
     return;
   }
 
+  const lapDeleteMatch = url.pathname.match(/^\/api\/laps\/([^/]+)$/);
+  if (req.method === "DELETE" && lapDeleteMatch) {
+    const db = await readDb();
+    db.laps = db.laps.filter((lap) => String(lap.id) !== decodeURIComponent(lapDeleteMatch[1]));
+    await writeDb(db);
+    sendJson(req, res, 200, { ok: true });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/media") {
     const body = await readBody(req);
     const entry = sanitizeMedia(body.entry || body);

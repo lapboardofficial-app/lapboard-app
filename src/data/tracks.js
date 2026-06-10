@@ -52,6 +52,7 @@ export const tracks = [
       { name: "South Track", image: "https://www.k1circuit.com/wp-content/uploads/2024/07/south-track-070924.png" },
       { name: "Pro Track", image: "https://www.k1circuit.com/wp-content/uploads/2024/08/pro-track-082024.png" },
       { name: "Pro Track with Chicanes", image: "https://www.k1circuit.com/wp-content/uploads/2024/08/pro-track-chicanes-082024.png" },
+      { name: "Nationals layout", image: "" },
       { name: "Pro Track + Chicanes & Tic-Tac-Toe", image: "" },
       { name: "Pro Track + Tic-Tac-Toe", image: "" },
       { name: "Pro Track Chicanes & Bus Stop", image: "" },

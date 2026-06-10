@@ -10,6 +10,7 @@ import {
   ListChecks,
   MapPin,
   Medal,
+  Pencil,
   Play,
   Plus,
   Search,
@@ -19,7 +20,8 @@ import {
   Upload,
   UserPlus,
   UserRound,
-  UsersRound
+  UsersRound,
+  X
 } from "lucide-react";
 import { kartOptions } from "./data/kartOptions";
 import { K1_GP_NIGHT_BONUS_XP, events, leagues } from "./data/leagues";
@@ -27,6 +29,7 @@ import { tracks } from "./data/tracks";
 import { ENABLE_SAMPLE_DATA, sampleAccounts, sampleLapTimes } from "./data/sampleData";
 import {
   createSupabaseTeam,
+  deleteSupabaseLap,
   deleteSupabaseLeagueMembership,
   deleteSupabaseMedia,
   deleteSupabaseTeam,
@@ -78,6 +81,9 @@ const AI_LAP_COUNT = 72;
 const AI_SKILL_DEFAULT = 60;
 const AI_CONDITION_DEFAULT = 50;
 const AI_RECORD_FLOOR_MS = 500;
+const SPEEDVEGAS_SODI_SESSION_PREFIX = "mnsst2cz-";
+const SPEEDVEGAS_SODI_KART = "Sodi RT10 GX270 Rental Kart";
+const DELETED_LAP_IDS_KEY = "lapboard-deleted-lap-ids";
 const API_BASE_URL = (
   import.meta.env.VITE_LAPBOARD_API_URL
   || (import.meta.env.PROD ? "" : "http://127.0.0.1:3010")
@@ -193,6 +199,18 @@ function getPublicLaps(laps) {
   return laps.filter((lap) => lap.visibility !== "private" && !lap.ai);
 }
 
+function isImportedSpeedVegasSessionLap(lap, trackId = lap?.trackId) {
+  return (
+    trackId === "speedvegas"
+    && String(lap?.id || "").startsWith(SPEEDVEGAS_SODI_SESSION_PREFIX)
+  );
+}
+
+function migrateImportedSpeedVegasKart(lap) {
+  if (!isImportedSpeedVegasSessionLap(lap)) return lap;
+  return { ...lap, kart: SPEEDVEGAS_SODI_KART };
+}
+
 function loadStored(key, fallback) {
   try {
     const saved = localStorage.getItem(key);
@@ -248,14 +266,16 @@ function loadAccounts(fallback) {
 
 function loadLapTimes(fallback) {
   try {
+    const deletedLapIds = new Set(loadStored(DELETED_LAP_IDS_KEY, []).map(String));
+    const activeFallback = fallback.filter((lap) => !deletedLapIds.has(String(lap.id)));
     const saved = localStorage.getItem("lapboard-times");
-    if (!saved) return fallback;
+    if (!saved) return activeFallback;
 
     const parsed = JSON.parse(saved);
-    if (!Array.isArray(parsed)) return fallback;
+    if (!Array.isArray(parsed)) return activeFallback;
 
-    const privateSeedIds = new Set(fallback.filter((lap) => lap.visibility === "private").map((lap) => String(lap.id)));
-    let migratedLapDates = false;
+    const privateSeedIds = new Set(activeFallback.filter((lap) => lap.visibility === "private").map((lap) => String(lap.id)));
+    let migratedLapData = false;
     const validLapTimes = parsed
       .map((lap) => {
         const trackId = lap.trackId || findTrackByName(lap.track || "")?.id;
@@ -266,16 +286,20 @@ function loadLapTimes(fallback) {
           "Rental Kart - Adult": "K1 Speed Rental Adult",
           "Rental Kart - Junior": "K1 Speed Rental Junior"
         }[kartName] || kartName;
+        const migratedKart = isImportedSpeedVegasSessionLap(lap, trackId)
+          ? SPEEDVEGAS_SODI_KART
+          : normalizedKart;
+        if (migratedKart !== kartName) migratedLapData = true;
 
         const savedDate = lap.date || new Date().toISOString().slice(0, 10);
         const normalizedDate = savedDate === "2026-12-14" ? "2025-12-14" : savedDate;
-        if (normalizedDate !== savedDate) migratedLapDates = true;
+        if (normalizedDate !== savedDate) migratedLapData = true;
 
         return {
           id: lap.id || Date.now(),
           player: lap.player,
           trackId,
-          kart: normalizedKart,
+          kart: migratedKart,
           ms: lap.ms,
           date: normalizedDate,
           lapNumber: Number(lap.lapNumber) || Number(lap.globalLapNumber) || undefined,
@@ -283,9 +307,9 @@ function loadLapTimes(fallback) {
           visibility: lap.visibility || (privateSeedIds.has(String(lap.id)) ? "private" : "public")
         };
       })
-      .filter(Boolean);
+      .filter((lap) => lap && !deletedLapIds.has(String(lap.id)));
 
-    if (migratedLapDates) {
+    if (migratedLapData) {
       localStorage.setItem("lapboard-times", JSON.stringify(validLapTimes));
     }
 
@@ -295,7 +319,7 @@ function loadLapTimes(fallback) {
 
     const existingIds = new Set(validLapTimes.map((lap) => String(lap.id)));
     const mergedLapTimes = [
-      ...fallback.filter((lap) => !existingIds.has(String(lap.id))),
+      ...activeFallback.filter((lap) => !existingIds.has(String(lap.id))),
       ...validLapTimes
     ];
     localStorage.setItem("lapboard-seed-version", SPLIT_SEED_VERSION);
@@ -1307,6 +1331,7 @@ function TrackImage({ track, layoutName }) {
 
 function App() {
   const sharedLapIdsRef = useRef(new Set());
+  const deletedLapIdsRef = useRef(new Set(loadStored(DELETED_LAP_IDS_KEY, []).map(String)));
   const sharedLeagueMembershipIdsRef = useRef(new Set());
   const suppressLapPublishRef = useRef(false);
   const suppressLeaguePublishRef = useRef(false);
@@ -1376,6 +1401,7 @@ function App() {
   const [resultFinish, setResultFinish] = useState("");
   const [resultPoints, setResultPoints] = useState("");
   const [resultNotes, setResultNotes] = useState("");
+  const [editingLeagueResultId, setEditingLeagueResultId] = useState(null);
   const [mediaTitle, setMediaTitle] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
   const [mediaFileTitle, setMediaFileTitle] = useState("");
@@ -1897,9 +1923,19 @@ function App() {
 
       if (supabaseEnabled) {
         const data = await loadSupabaseBootstrap();
-        const sharedLaps = Array.isArray(data.laps) ? data.laps : [];
+        const rawSharedLaps = Array.isArray(data.laps) ? data.laps : [];
+        const sharedLaps = rawSharedLaps
+          .map(migrateImportedSpeedVegasKart)
+          .filter((lap) => !deletedLapIdsRef.current.has(String(lap.id)));
 
-        sharedLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
+        rawSharedLaps.forEach((lap) => {
+          if (
+            !deletedLapIdsRef.current.has(String(lap.id))
+            && (!isImportedSpeedVegasSessionLap(lap) || lap.kart === SPEEDVEGAS_SODI_KART)
+          ) {
+            sharedLapIdsRef.current.add(String(lap.id));
+          }
+        });
         setLapTimes((current) => {
           const nextLapTimes = mergeById(current, sharedLaps);
           saveStored("lapboard-times", nextLapTimes);
@@ -1931,9 +1967,19 @@ function App() {
       }
 
       const data = await requestSharedApi("/api/bootstrap");
-      const sharedLaps = Array.isArray(data.laps) ? data.laps : [];
+      const rawSharedLaps = Array.isArray(data.laps) ? data.laps : [];
+      const sharedLaps = rawSharedLaps
+        .map(migrateImportedSpeedVegasKart)
+        .filter((lap) => !deletedLapIdsRef.current.has(String(lap.id)));
 
-      sharedLaps.forEach((lap) => sharedLapIdsRef.current.add(String(lap.id)));
+      rawSharedLaps.forEach((lap) => {
+        if (
+          !deletedLapIdsRef.current.has(String(lap.id))
+          && (!isImportedSpeedVegasSessionLap(lap) || lap.kart === SPEEDVEGAS_SODI_KART)
+        ) {
+          sharedLapIdsRef.current.add(String(lap.id));
+        }
+      });
       setLapTimes((current) => {
         const nextLapTimes = mergeById(current, sharedLaps);
         saveStored("lapboard-times", nextLapTimes);
@@ -2047,6 +2093,41 @@ function App() {
         ? `Publishing ${lapsToPublish.length} of your laps to the shared leaderboards.`
         : `Publishing ${lapsToPublish.length} ${getTrackName(myLapsTrackId)} lap${lapsToPublish.length === 1 ? "" : "s"} to the shared leaderboard.`
     );
+  }
+
+  async function removeLap(lapId) {
+    const lap = lapTimes.find((item) => String(item.id) === String(lapId));
+    if (!lap || lap.player.toLowerCase() !== account.username.toLowerCase()) return;
+
+    const id = String(lap.id);
+    deletedLapIdsRef.current.add(id);
+    saveStored(DELETED_LAP_IDS_KEY, Array.from(deletedLapIdsRef.current));
+    sharedLapIdsRef.current.delete(id);
+    persistLapTimes(lapTimes.filter((item) => String(item.id) !== id));
+    setMessage(`Removed ${formatTime(lap.ms)} from ${getTrackName(lap.trackId)}.`);
+
+    if (lap.visibility === "private") return;
+
+    try {
+      if (supabaseEnabled) {
+        if (!supabaseSession?.user) {
+          setMessage("Lap removed from My Laps. Sign in to remove its public leaderboard copy.");
+          return;
+        }
+        await deleteSupabaseLap(id, supabaseSession.user.id);
+        setSharedConnected();
+        return;
+      }
+
+      await requestSharedApi(`/api/laps/${encodeURIComponent(id)}`, { method: "DELETE" });
+      setSharedConnected();
+    } catch (error) {
+      if (supabaseEnabled) {
+        setSharedOperationFailure(error, "Lap removed locally, but its Supabase copy could not be deleted.");
+        return;
+      }
+      setSharedFailure(error, "Lap removed locally, but its shared copy could not be deleted.");
+    }
   }
 
   async function publishSharedMedia(entry) {
@@ -2304,8 +2385,8 @@ function App() {
       return;
     }
 
-    const newResult = {
-      id: Date.now(),
+    const result = {
+      id: editingLeagueResultId || Date.now(),
       player: account.username,
       leagueId,
       trackId,
@@ -2315,11 +2396,32 @@ function App() {
       notes: resultNotes.trim()
     };
 
-    setLeagueResults((current) => [newResult, ...current]);
+    setLeagueResults((current) => (
+      editingLeagueResultId
+        ? current.map((item) => (String(item.id) === String(editingLeagueResultId) ? result : item))
+        : [result, ...current]
+    ));
+    setEditingLeagueResultId(null);
     setResultFinish("");
     setResultPoints("");
     setResultNotes("");
-    setMessage(`League result added for ${formatDate(resultDate)}. LR updated.`);
+    setMessage(`League result ${editingLeagueResultId ? "updated" : "added"} for ${formatDate(resultDate)}. LR updated.`);
+  }
+
+  function editLeagueResult(result) {
+    setEditingLeagueResultId(result.id);
+    setResultLeagueKey(`${result.leagueId}:${result.trackId}`);
+    setResultDate(result.date);
+    setResultFinish(result.finish || "");
+    setResultPoints(result.points || "");
+    setResultNotes(result.notes || "");
+  }
+
+  function cancelLeagueResultEdit() {
+    setEditingLeagueResultId(null);
+    setResultFinish("");
+    setResultPoints("");
+    setResultNotes("");
   }
 
   function handleK1LapImport(event) {
@@ -3874,6 +3976,7 @@ function App() {
                   <th>Delta from previous</th>
                   <th>Layout</th>
                   <th>Kart</th>
+                  <th aria-label="Actions"></th>
                 </tr>
               </thead>
               <tbody>
@@ -3887,11 +3990,22 @@ function App() {
                     </td>
                     <td>{lap.layout || "Main layout"}</td>
                     <td>{lap.kart}</td>
+                    <td className="table-action-cell">
+                      <button
+                        className="icon-button remove-lap-button"
+                        type="button"
+                        title="Remove lap"
+                        aria-label={`Remove lap ${lap.lapNumber || index + 1}`}
+                        onClick={() => removeLap(lap.id)}
+                      >
+                        <X size={16} aria-hidden="true" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {!myLapsWithDeltas.length && (
                   <tr>
-                    <td colSpan="6" className="empty-cell">No laps saved for {getTrackName(myLapsTrackId)} yet.</td>
+                    <td colSpan="7" className="empty-cell">No laps saved for {getTrackName(myLapsTrackId)} yet.</td>
                   </tr>
                 )}
               </tbody>
@@ -4341,7 +4455,7 @@ function App() {
               <section className="result-panel">
                 <div className="compact-heading">
                   <Trophy size={16} aria-hidden="true" />
-                  <h2>Add previous result</h2>
+                  <h2>{editingLeagueResultId ? "Edit previous result" : "Add previous result"}</h2>
                 </div>
                 <form className="result-form" onSubmit={addLeagueResult}>
                   <label className="field">
@@ -4379,13 +4493,33 @@ function App() {
                     <span className="field-label">Notes</span>
                     <textarea value={resultNotes} onChange={(event) => setResultNotes(event.target.value)} />
                   </label>
-                  <button className="primary-button" type="submit" disabled={!userLeagueMemberships.length}>Add result</button>
+                  <div className="result-form-actions">
+                    <button className="primary-button" type="submit" disabled={!userLeagueMemberships.length}>
+                      {editingLeagueResultId ? "Save changes" : "Add result"}
+                    </button>
+                    {editingLeagueResultId && (
+                      <button className="ghost-button" type="button" onClick={cancelLeagueResultEdit}>
+                        Cancel
+                      </button>
+                    )}
+                  </div>
                 </form>
 
                 <div className="result-list">
                   {userLeagueResults.map((result) => (
                     <div className="result-row" key={result.id}>
-                      <span>{formatDate(result.date)}</span>
+                      <div className="result-row-heading">
+                        <span>{formatDate(result.date)}</span>
+                        <button
+                          className="icon-button edit-result-button"
+                          type="button"
+                          title="Edit result"
+                          aria-label={`Edit result from ${formatDate(result.date)}`}
+                          onClick={() => editLeagueResult(result)}
+                        >
+                          <Pencil size={15} aria-hidden="true" />
+                        </button>
+                      </div>
                       <strong>{getLeague(result.leagueId)?.name} / {getTrackName(result.trackId)}</strong>
                       <small>{result.finish || "Finish --"} / {result.points || "0"} pts {isLeagueRaceDate(result.leagueId, result.date) ? `/ +${K1_GP_NIGHT_BONUS_XP} XP` : ""}</small>
                       {result.notes && <p>{result.notes}</p>}

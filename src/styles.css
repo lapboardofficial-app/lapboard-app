@@ -1693,6 +1693,15 @@ tbody tr.leader {
   gap: 8px;
 }
 
+.result-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.result-form-actions > button {
+  flex: 1;
+}
+
 .result-row {
   display: grid;
   gap: 4px;
@@ -1700,6 +1709,13 @@ tbody tr.leader {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 94%, var(--accent));
+}
+
+.result-row-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .result-row span,
@@ -1718,6 +1734,39 @@ tbody tr.leader {
   margin: 2px 0 0;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.icon-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.table-action-cell {
+  width: 48px;
+  text-align: right;
+}
+
+.remove-lap-button {
+  color: #c93737;
+}
+
+.remove-lap-button:hover {
+  border-color: #c93737;
+  color: #a91f1f;
+  background: color-mix(in srgb, #c93737 9%, var(--surface));
 }
 
 .profiles-layout {
