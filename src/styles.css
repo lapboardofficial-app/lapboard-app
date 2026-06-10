@@ -49,7 +49,7 @@ img {
 .app-shell {
   width: min(1480px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 20px 0 40px;
+  padding: 0 0 40px;
   color: var(--text);
   background: var(--background);
   min-height: 100vh;
@@ -152,12 +152,19 @@ img {
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 18;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 28px;
-  min-height: 56px;
+  gap: 20px;
+  min-height: 64px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
   margin-bottom: 18px;
+  background: color-mix(in srgb, var(--background) 96%, transparent);
+  backdrop-filter: blur(12px);
 }
 
 .brand {
@@ -196,8 +203,8 @@ img {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 18px;
-  flex-wrap: wrap;
+  gap: 12px;
+  flex-wrap: nowrap;
 }
 
 .main-nav button {
@@ -206,7 +213,7 @@ img {
   border: 0;
   color: var(--text);
   background: transparent;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   font-weight: 750;
 }
 
@@ -331,7 +338,7 @@ img {
 
 .add-panel {
   position: sticky;
-  top: 16px;
+  top: 82px;
 }
 
 .panel-heading {
@@ -763,7 +770,10 @@ img {
   z-index: 30;
   max-width: min(420px, calc(100vw - 32px));
   margin: 0;
-  padding: 10px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
   border-radius: 8px;
   color: var(--text);
@@ -772,6 +782,28 @@ img {
   font-size: 0.84rem;
   font-weight: 780;
   line-height: 1.35;
+}
+
+.app-message-toast > span {
+  flex: 1;
+}
+
+.app-message-toast button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.app-message-toast button:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
 .leaderboard-filters {
@@ -805,6 +837,48 @@ img {
 .sync-button,
 .compact-action-button {
   align-self: end;
+}
+
+.publish-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 2px solid #20a45a;
+  border-radius: 6px;
+  color: color-mix(in srgb, #159451 72%, var(--text));
+  background: color-mix(in srgb, #35c86f 16%, var(--surface));
+  font-weight: 850;
+}
+
+.publish-button:hover {
+  border-color: #168548;
+  color: color-mix(in srgb, #0f7c42 70%, var(--text));
+  background: color-mix(in srgb, #35c86f 25%, var(--surface));
+}
+
+.players-panel {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.player-directory-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-directory-name img,
+.player-directory-name > span {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  font-size: 0.7rem;
+  font-weight: 850;
 }
 
 .compact-action-button {
@@ -1989,10 +2063,11 @@ tbody tr.leader {
 @media (max-width: 720px) {
   .app-shell {
     width: min(100% - 24px, 1480px);
-    padding-top: 12px;
+    padding-top: 0;
   }
 
   .topbar {
+    position: relative;
     grid-template-columns: 1fr auto;
     gap: 12px;
   }

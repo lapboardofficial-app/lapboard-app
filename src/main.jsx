@@ -195,6 +195,26 @@ function mergeById(current, incoming) {
   return Array.from(items.values());
 }
 
+function mergeAccountsByUsername(current, incoming) {
+  const accountsByName = new Map(
+    current.map((item) => [item.username.toLowerCase(), item])
+  );
+
+  incoming.forEach((item) => {
+    if (!item?.username) return;
+    const key = item.username.toLowerCase();
+    const existing = accountsByName.get(key);
+    accountsByName.set(key, {
+      ...normalizeAccount(item.username),
+      ...existing,
+      ...item,
+      friends: Array.isArray(existing?.friends) ? existing.friends : []
+    });
+  });
+
+  return Array.from(accountsByName.values());
+}
+
 function getPublicLaps(laps) {
   return laps.filter((lap) => lap.visibility !== "private" && !lap.ai);
 }
@@ -1522,6 +1542,28 @@ function App() {
   const level = getPlayerLevel(lapTimes, account.username, leagueBonusXp);
   const xp = getPlayerXp(lapTimes, account.username) + leagueBonusXp;
   const levelProgress = getLevelProgress(lapTimes, account.username, leagueBonusXp);
+  const playerDirectory = useMemo(() => {
+    const playersByName = new Map(
+      accounts.map((item) => [item.username.toLowerCase(), item])
+    );
+
+    visibleLapTimes
+      .filter((lap) => lap.visibility !== "private" && !lap.ai)
+      .forEach((lap) => {
+        const key = lap.player.toLowerCase();
+        if (!playersByName.has(key)) {
+          playersByName.set(key, normalizeAccount(lap.player));
+        }
+      });
+
+    return Array.from(playersByName.values())
+      .sort((a, b) => a.username.localeCompare(b.username));
+  }, [accounts, visibleLapTimes]);
+  const getDisplayedPlayerLevel = (username) => (
+    username.toLowerCase() === account.username.toLowerCase()
+      ? level
+      : getPlayerLevel(visibleLapTimes, username)
+  );
   const navbarTime = new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
@@ -1950,6 +1992,11 @@ function App() {
           const nextTeams = mergeById(current, Array.isArray(data.teams) ? data.teams : []);
           saveStored("lapboard-teams", nextTeams);
           return nextTeams;
+        });
+        setAccounts((current) => {
+          const nextAccounts = mergeAccountsByUsername(current, Array.isArray(data.players) ? data.players : []);
+          saveStored("lapboard-accounts", nextAccounts);
+          return nextAccounts;
         });
         setLeagueMemberships((current) => {
           const sharedMemberships = Array.isArray(data.leagueMemberships) ? data.leagueMemberships : [];
@@ -3508,6 +3555,7 @@ function App() {
             ["media", "Media Center"],
             ["teams", "Team Center"],
             ["leagues", "Leagues/Events"],
+            ["players", "Players"],
             ["profiles", "Profiles"]
           ].map(([id, label]) => (
             <button
@@ -3535,7 +3583,12 @@ function App() {
       </header>
 
       {message && !showOnboarding && (
-        <p className="app-message-toast" role="status" aria-live="polite">{message}</p>
+        <div className="app-message-toast" role="status" aria-live="polite">
+          <span>{message}</span>
+          <button type="button" title="Dismiss" aria-label="Dismiss notification" onClick={() => setMessage("")}>
+            <X size={15} aria-hidden="true" />
+          </button>
+        </div>
       )}
 
       {activeTab === "leaderboard" && (
@@ -3729,7 +3782,7 @@ function App() {
                   <button className="ghost-button sync-button" type="button" onClick={() => syncSharedData({ showMessage: true })}>
                     Sync shared laps
                   </button>
-                  <button className="ghost-button compact-action-button" type="button" onClick={() => publishOwnLaps("all")}>
+                  <button className="publish-button compact-action-button" type="button" onClick={() => publishOwnLaps("all")}>
                     Publish all
                   </button>
                   <label className="toggle-field compact-toggle">
@@ -3857,7 +3910,7 @@ function App() {
                           </span>
                         </td>
                         <td className="driver">
-                          ({lap.ai ? "AI" : getPlayerLevel(visibleLapTimes, lap.player)}) {lap.player}
+                          ({lap.ai ? "AI" : getDisplayedPlayerLevel(lap.player)}) {lap.player}
                           {lap.ai && <span className="ai-badge">AI</span>}
                         </td>
                         <td>{getTrackName(lap.trackId)}</td>
@@ -3949,7 +4002,7 @@ function App() {
                 ))}
               </select>
             </label>
-            <button className="ghost-button" type="button" onClick={() => publishOwnLaps("track")}>
+            <button className="publish-button" type="button" onClick={() => publishOwnLaps("track")}>
               Publish this track
             </button>
           </div>
@@ -4549,6 +4602,53 @@ function App() {
               ))}
             </div>
           )}
+        </section>
+      )}
+
+      {activeTab === "players" && (
+        <section className="panel players-panel" aria-labelledby="players-title">
+          <div className="panel-heading split">
+            <span>
+              <span className="icon-badge">
+                <UsersRound size={18} aria-hidden="true" />
+              </span>
+              <h1 id="players-title">Players</h1>
+            </span>
+            <span className="helper-text">{playerDirectory.length} registered drivers</span>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Level</th>
+                  <th>Home track</th>
+                </tr>
+              </thead>
+              <tbody>
+                {playerDirectory.map((player) => (
+                  <tr key={player.username}>
+                    <td className="player-directory-name">
+                      {player.avatar ? (
+                        <img src={player.avatar} alt="" />
+                      ) : (
+                        <span aria-hidden="true">{player.username.slice(0, 2).toUpperCase()}</span>
+                      )}
+                      <strong>{player.username}</strong>
+                    </td>
+                    <td>Lv {getDisplayedPlayerLevel(player.username)}</td>
+                    <td>{player.homeTrackId ? getTrackName(player.homeTrackId) : "Not set"}</td>
+                  </tr>
+                ))}
+                {!playerDirectory.length && (
+                  <tr>
+                    <td colSpan="3" className="empty-cell">No player profiles are available yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

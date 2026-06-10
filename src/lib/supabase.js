@@ -296,21 +296,23 @@ export async function upsertProfile(user, accountPatch = {}) {
 
 export async function loadSupabaseBootstrap() {
   const client = requireSupabase();
-  const [laps, media, teams, memberships] = await runSupabaseRequest("loading shared data", () => Promise.all([
+  const [laps, media, teams, memberships, profiles] = await runSupabaseRequest("loading shared data", () => Promise.all([
     client.from("laps").select("*").order("lap_date", { ascending: false }),
     client.from("media_entries").select("*").order("created_at", { ascending: false }),
     client.from("teams").select("*, team_members(player)").order("name", { ascending: true }),
-    client.from("league_memberships").select("*").order("joined_at", { ascending: false })
+    client.from("league_memberships").select("*").order("joined_at", { ascending: false }),
+    client.from("profiles").select("*").order("username", { ascending: true })
   ]));
 
-  const firstError = [laps, media, teams, memberships].find((result) => result.error)?.error;
+  const firstError = [laps, media, teams, memberships, profiles].find((result) => result.error)?.error;
   if (firstError) throw firstError;
 
   return {
     laps: (laps.data || []).map(rowToLap),
     media: (media.data || []).map(rowToMedia),
     teams: (teams.data || []).map(rowToTeam),
-    leagueMemberships: (memberships.data || []).map(rowToMembership)
+    leagueMemberships: (memberships.data || []).map(rowToMembership),
+    players: (profiles.data || []).map((profile) => profileToAccount(profile))
   };
 }
 
